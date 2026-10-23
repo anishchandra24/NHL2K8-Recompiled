@@ -23,7 +23,7 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.1";
+        const string WizardVersion = "1.2";
         const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -50,6 +50,7 @@ namespace Nhl2k8Setup
         public SetupForm()
         {
             Text = "NHL 2K8 Recompiled - Setup";
+            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
             Font = new Font("Segoe UI", 9f);
             Image banner = LoadBanner();
             int b = (banner != null) ? BannerHeight : 0;
@@ -567,3 +568,4 @@ namespace Nhl2k8Setup
         }
     }
 }
+
