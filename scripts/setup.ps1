@@ -1,4 +1,4 @@
-# NHL 2K8 Recompiled - setup script (version 0.2: checks, fetches the SDK, applies the music patch)
+# NHL 2K8 Recompiled - setup script (version 0.2.1: checks, fetches the SDK, applies the music patch)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -GameDataRoot "D:\path\to\extracted\game"
 param(
     [string]$GameDataRoot = "",
@@ -26,7 +26,7 @@ function Git-Run {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.2: checks, SDK download, music patch; no build yet)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.2.1: checks, SDK download, music patch; no build yet)"
 Write-Host ""
 
 # Windows
@@ -133,6 +133,31 @@ try {
         Git-Run @("-C", $SdkDir, "submodule", "update", "--init", "--recursive")
     }
     Ok "Bundled libraries ready"
+    # libmspack ships its sources as symlinks. Windows Git without symlink support turns
+    # them into tiny text files holding the target path. Put the real files in place.
+    $mspackDir = Join-Path $SdkDir "thirdparty\libmspack\cabextract\mspack"
+    $fixed = 0
+    foreach ($f in Get-ChildItem $mspackDir -File) {
+        if ($f.Length -lt 100) {
+            $rel = (Get-Content -LiteralPath $f.FullName -Raw).Trim()
+            if ($rel -like "../*") {
+                $src = [IO.Path]::GetFullPath((Join-Path $mspackDir $rel))
+                if (Test-Path -LiteralPath $src) {
+                    Copy-Item -LiteralPath $src -Destination $f.FullName -Force
+                    $fixed++
+                }
+            }
+        }
+    }
+    foreach ($n in @("chm.h", "kwaj.h", "lit.h")) {
+        $src = Join-Path $SdkDir ("thirdparty\libmspack\libmspack\mspack\" + $n)
+        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $mspackDir $n) -Force }
+    }
+    if ((Get-Item (Join-Path $mspackDir "lzxd.c")).Length -gt 1000) {
+        Ok "libmspack sources ready ($fixed placeholder files replaced)"
+    } else {
+        throw "libmspack sources are still placeholders"
+    }
     Ok ("SDK version: " + (& git -C $SdkDir describe --tags --always))
 
     $target = Join-Path $SdkDir "src\kernel\xam\apps\xmp_app.cpp"
@@ -162,5 +187,6 @@ if ($failed) {
     exit 1
 }
 Write-Host ("Done in {0:N1} minutes. The patched SDK source is at {1}" -f $sw.Elapsed.TotalMinutes, $SdkDir) -ForegroundColor Green
-Write-Host "(The build steps are not written yet; this is version 0.2.)"
+Write-Host "(The build steps are not written yet; this is version 0.2.1.)"
 exit 0
+
