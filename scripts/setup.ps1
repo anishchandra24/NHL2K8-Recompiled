@@ -103,6 +103,14 @@ if ($git) { Ok ("Git: " + (& git --version)) } else { Bad "Git was not found (in
 
 # CMake
 $cmake = Get-Command cmake -ErrorAction SilentlyContinue
+if (-not $cmake) {
+    $cm = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cm) {
+        $env:Path = $cm.DirectoryName + ";" + $env:Path
+        $cmake = Get-Command cmake -ErrorAction SilentlyContinue
+        Ok "CMake is bundled with Visual Studio (setup will use it)"
+    }
+}
 if ($cmake) {
     $line = (& cmake --version | Select-Object -First 1)
     $ver = [regex]::Match($line, '(\d+)\.(\d+)')
@@ -284,6 +292,7 @@ if ($failed) {
 Write-Host ("Done in {0:N1} minutes. The game is in {1}" -f $sw.Elapsed.TotalMinutes, (Join-Path $RepoRoot "dist")) -ForegroundColor Green
 Write-Host "Start the game from the NHL 2K8 Recompiled shortcut on your desktop, or dist\Launch NHL 2K8.bat"
 exit 0
+
 
 
 
