@@ -84,7 +84,8 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 
 ## License
 
-The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. It grants no rights to the game's files, or to anything generated from them on your own computer. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. It grants no rights to the game's files, or to anything generated from them on your own computer. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+
 
 
 
