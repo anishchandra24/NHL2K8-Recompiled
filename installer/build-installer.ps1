@@ -16,6 +16,11 @@ $lines = @(
     '      </requestedPrivileges>',
     '    </security>',
     '  </trustInfo>',
+    '  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">',
+    '    <application>',
+    '      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />',
+    '    </application>',
+    '  </compatibility>',
     '</assembly>'
 )
 Set-Content -Path $manifest -Value $lines -Encoding ascii
@@ -26,3 +31,4 @@ if (Test-Path $banner) { $extra += ("/resource:" + $banner + ",banner.png"); Wri
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /win32manifest:$manifest /out:$exe /r:System.Windows.Forms.dll /r:System.Drawing.dll $extra (Join-Path $PSScriptRoot "Installer.cs")
 if ($LASTEXITCODE -ne 0) { throw "The installer did not compile (see the errors above)." }
 Write-Host "built: $exe"
+
