@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -22,10 +23,12 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
+        const string WizardVersion = "1.1";
         const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
         const string VsCmake = "Microsoft.VisualStudio.Component.VC.CMake.Project";
+        const int BannerHeight = 140;
 
         TextBox gameBox;
         TextBox installBox;
@@ -34,9 +37,12 @@ namespace Nhl2k8Setup
         Button installBrowse;
         Button startButton;
         Button playButton;
+        Button logButton;
         Label statusLabel;
         Process current;
         volatile bool running;
+        bool browsing;
+        DateTime lastBrowseClosed = DateTime.MinValue;
         string installedDir;
         readonly string logFile = Path.Combine(Path.GetTempPath(), "NHL2K8-Setup.log");
         readonly object logLock = new object();
@@ -45,40 +51,60 @@ namespace Nhl2k8Setup
         {
             Text = "NHL 2K8 Recompiled - Setup";
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 560);
-            MinimumSize = new Size(640, 460);
+            Image banner = LoadBanner();
+            int b = (banner != null) ? BannerHeight : 0;
+            ClientSize = new Size(720, 560 + b);
+            MinimumSize = new Size(640, 460 + b);
             StartPosition = FormStartPosition.CenterScreen;
+
+            if (banner != null)
+            {
+                PictureBox pic = new PictureBox();
+                pic.BackColor = Color.Black;
+                pic.SizeMode = PictureBoxSizeMode.Zoom;
+                pic.Image = banner;
+                pic.SetBounds(0, 0, 720, BannerHeight);
+                pic.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                Controls.Add(pic);
+            }
 
             Label intro = new Label();
             intro.Text = "This sets up NHL 2K8 Recompiled on your PC. It contains no game files: you need your own extracted copy of the game. " +
                 "Setup downloads the project and builds it on your PC, which takes about 15 to 30 minutes and about 10 GB of disk space. " +
                 "Missing tools (Git, Visual Studio) are installed for you with Windows' package installer; Windows will ask for permission.";
-            intro.SetBounds(12, 10, 696, 56);
+            intro.SetBounds(12, 10 + b, 696, 56);
             intro.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(intro);
 
-            AddRow("Your game folder (the folder that contains default.xex):", 72, out gameBox, out gameBrowse);
-            AddRow("Install folder (keep the path short):", 124, out installBox, out installBrowse);
+            AddRow("Your game folder (the folder that contains default.xex):", 72 + b, out gameBox, out gameBrowse);
+            AddRow("Install folder (keep the path short):", 124 + b, out installBox, out installBrowse);
             installBox.Text = "C:\\NHL2K8";
-            gameBrowse.Click += delegate { BrowseInto(gameBox, "Choose the folder that contains default.xex"); };
-            installBrowse.Click += delegate { BrowseInto(installBox, "Choose where to install"); };
+            gameBrowse.Click += delegate { Browse(gameBox, "Choose the folder that contains default.xex", "game folder"); };
+            installBrowse.Click += delegate { Browse(installBox, "Choose where to install (a short path such as C:\\NHL2K8)", "install folder"); };
 
             startButton = new Button();
             startButton.Text = "Install";
-            startButton.SetBounds(12, 178, 140, 32);
+            startButton.SetBounds(12, 178 + b, 140, 32);
             startButton.Click += OnStart;
             Controls.Add(startButton);
 
             playButton = new Button();
             playButton.Text = "Play";
-            playButton.SetBounds(160, 178, 140, 32);
+            playButton.SetBounds(160, 178 + b, 140, 32);
             playButton.Enabled = false;
             playButton.Click += OnPlay;
             Controls.Add(playButton);
 
+            logButton = new Button();
+            logButton.Text = "Open log";
+            logButton.SetBounds(308, 178 + b, 110, 32);
+            logButton.Click += OnOpenLog;
+            Controls.Add(logButton);
+
             statusLabel = new Label();
             statusLabel.Text = "Ready.";
-            statusLabel.SetBounds(312, 186, 396, 20);
+            statusLabel.AutoEllipsis = true;
+            statusLabel.SetBounds(428, 186 + b, 280, 20);
             statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(statusLabel);
 
@@ -88,7 +114,7 @@ namespace Nhl2k8Setup
             logBox.ScrollBars = ScrollBars.Vertical;
             logBox.Font = new Font("Consolas", 8.5f);
             logBox.BackColor = Color.White;
-            logBox.SetBounds(12, 220, 696, 328);
+            logBox.SetBounds(12, 220 + b, 696, 328);
             logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(logBox);
 
@@ -96,9 +122,31 @@ namespace Nhl2k8Setup
             {
                 installedDir = "C:\\NHL2K8";
                 playButton.Enabled = true;
-                statusLabel.Text = "NHL 2K8 Recompiled is already installed in C:\\NHL2K8.";
+                statusLabel.Text = "Already installed in C:\\NHL2K8.";
             }
             logBox.Text = "A copy of this log is saved in " + logFile + Environment.NewLine;
+            WriteLogFile("---- NHL 2K8 Recompiled setup wizard " + WizardVersion + " started on Windows " + Environment.OSVersion.Version + " ----");
+        }
+
+        static Image LoadBanner()
+        {
+            try
+            {
+                using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("banner.png"))
+                {
+                    if (s == null) return null;
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        s.CopyTo(ms);
+                        ms.Position = 0;
+                        using (Image tmp = Image.FromStream(ms))
+                        {
+                            return new Bitmap(tmp);
+                        }
+                    }
+                }
+            }
+            catch (Exception) { return null; }
         }
 
         void AddRow(string caption, int top, out TextBox box, out Button browse)
@@ -118,23 +166,50 @@ namespace Nhl2k8Setup
             Controls.Add(browse);
         }
 
-        void BrowseInto(TextBox box, string description)
+        void Browse(TextBox box, string description, string which)
         {
-            using (FolderBrowserDialog d = new FolderBrowserDialog())
+            if (browsing)
             {
-                d.Description = description;
-                if (box.Text.Length > 0 && Directory.Exists(box.Text)) d.SelectedPath = box.Text;
-                if (d.ShowDialog(this) == DialogResult.OK) box.Text = d.SelectedPath;
+                WriteLogFile("Browse: ignored a request for the " + which + " dialog while another dialog was open");
+                return;
+            }
+            double sinceClose = (DateTime.UtcNow - lastBrowseClosed).TotalMilliseconds;
+            if (sinceClose < 800)
+            {
+                WriteLogFile("Browse: ignored a request for the " + which + " dialog " + ((int)sinceClose) + " ms after the previous dialog closed");
+                return;
+            }
+            browsing = true;
+            WriteLogFile("Browse: opening the " + which + " dialog");
+            try
+            {
+                using (FolderBrowserDialog d = new FolderBrowserDialog())
+                {
+                    d.Description = description;
+                    DialogResult r = d.ShowDialog(this);
+                    WriteLogFile("Browse: the " + which + " dialog closed (" + r + ")");
+                    if (r == DialogResult.OK) box.Text = d.SelectedPath;
+                }
+            }
+            finally
+            {
+                browsing = false;
+                lastBrowseClosed = DateTime.UtcNow;
+            }
+        }
+
+        void WriteLogFile(string text)
+        {
+            lock (logLock)
+            {
+                try { File.AppendAllText(logFile, DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine); } catch (Exception) { }
             }
         }
 
         void Log(string text)
         {
             if (text == null) return;
-            lock (logLock)
-            {
-                try { File.AppendAllText(logFile, text + Environment.NewLine); } catch (Exception) { }
-            }
+            WriteLogFile(text);
             try { BeginInvoke(new Action<string>(AppendUi), text); } catch (Exception) { }
         }
 
@@ -161,6 +236,12 @@ namespace Nhl2k8Setup
         void Warn(string message)
         {
             MessageBox.Show(this, message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        void OnOpenLog(object sender, EventArgs e)
+        {
+            try { Process.Start("notepad.exe", "\"" + logFile + "\""); }
+            catch (Exception ex) { Warn("The log could not be opened: " + ex.Message); }
         }
 
         void OnStart(object sender, EventArgs e)
@@ -223,6 +304,12 @@ namespace Nhl2k8Setup
                 Log("STOPPED: " + ex.Message);
                 SetStatus("Stopped - see the last lines of the log.");
             }
+            try
+            {
+                string ld = Path.Combine(dir, ".local\\logs");
+                if (Directory.Exists(ld)) File.Copy(logFile, Path.Combine(ld, "wizard.log"), true);
+            }
+            catch (Exception) { }
             try
             {
                 BeginInvoke(new Action(delegate
