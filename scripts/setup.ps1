@@ -1,8 +1,9 @@
-# NHL 2K8 Recompiled - setup script (version 0.2.1: checks, fetches the SDK, applies the music patch)
+# NHL 2K8 Recompiled - setup script (version 0.3.1: checks, SDK download, music patch, SDK build)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -GameDataRoot "D:\path\to\extracted\game"
 param(
     [string]$GameDataRoot = "",
-    [switch]$ValidateOnly
+    [switch]$ValidateOnly,
+    [switch]$Rebuild
 )
 
 $ExpectedSha256 = "BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225"
@@ -12,6 +13,10 @@ $SdkCommit = "c94f5ebdcb3c9d1a460ca48e04f9758448f8d518"
 $RepoRoot  = Split-Path -Parent $PSScriptRoot
 $LocalDir  = Join-Path $RepoRoot ".local"
 $SdkDir    = Join-Path $LocalDir "rexglue-sdk"
+$SdkBuildDir   = Join-Path $SdkDir "out\build\win-amd64"
+$SdkInstallDir = Join-Path $SdkDir "out\install\win-amd64"
+$LogDir    = Join-Path $LocalDir "logs"
+$StampFile = Join-Path $LocalDir "sdk-build.stamp"
 $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -19,18 +24,74 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 function Ok($msg)   { Write-Host "[ ok ] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }
 function Bad($msg)  { Write-Host "[FAIL] $msg" -ForegroundColor Red; $script:failed = $true }
+
 function Git-Run {
     param([string[]]$GitArgs)
     & git @GitArgs
     if ($LASTEXITCODE -ne 0) { throw ("git " + ($GitArgs -join " ") + " failed (exit code " + $LASTEXITCODE + ")") }
 }
 
+# Loads Visual Studio's build environment (the same thing a "Native Tools" prompt does).
+function Import-VsEnvironment {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { throw "Visual Studio's vswhere.exe was not found. Install Visual Studio 2022 with the C++ Clang tools." }
+    $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
+    if (-not $vs) { $vs = & $vswhere -latest -products * -property installationPath }
+    if (-not $vs) { throw "No Visual Studio installation was found." }
+    $vs = ($vs | Select-Object -First 1).ToString().Trim()
+    $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+    if (-not (Test-Path $vcvars)) { throw "vcvars64.bat was not found in $vs" }
+    $tmp = Join-Path $env:TEMP "nhl2k8_vsenv.bat"
+    Set-Content -Path $tmp -Encoding ascii -Value @("@echo off", "call `"$vcvars`" >nul 2>&1", "set")
+    $lines = & $tmp
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    foreach ($l in $lines) {
+        $i = $l.IndexOf("=")
+        if ($i -gt 0) { [Environment]::SetEnvironmentVariable($l.Substring(0, $i), $l.Substring($i + 1), "Process") }
+    }
+    Ok "Visual Studio build environment loaded"
+}
+
+# Runs a program, logs its output to .local\logs, and prints a progress line every 30 seconds.
+function Invoke-Step {
+    param([string]$Label, [string]$Exe, [string[]]$ToolArgs, [string]$WorkDir, [string]$LogName)
+    New-Item -ItemType Directory -Force $LogDir | Out-Null
+    $out = Join-Path $LogDir ($LogName + ".out.log")
+    $err = Join-Path $LogDir ($LogName + ".err.log")
+    $exePath = (Get-Command $Exe).Source
+    $quoted = @()
+    foreach ($a in $ToolArgs) { if ($a -match '\s') { $quoted += ('"' + $a + '"') } else { $quoted += $a } }
+    Write-Host "$Label ... (full log: $out)"
+    $t0 = Get-Date
+    $p = Start-Process -FilePath $exePath -ArgumentList $quoted -WorkingDirectory $WorkDir -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
+    $null = $p.Handle
+    while (-not $p.HasExited) {
+        Start-Sleep -Seconds 30
+        $mins = [math]::Round(((Get-Date) - $t0).TotalMinutes, 1)
+        $last = ""
+        try { $last = [string](Get-Content $out -Tail 1 -ErrorAction SilentlyContinue) } catch { }
+        if ($last.Length -gt 90) { $last = $last.Substring(0, 90) }
+        Write-Host ("   ... {0} min   {1}" -f $mins, $last)
+    }
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) {
+        Write-Host "---- last lines of the output ----" -ForegroundColor Red
+        if (Test-Path $out) { Get-Content $out -Tail 20 }
+        if (Test-Path $err) { Get-Content $err -Tail 20 }
+        throw "$Label failed (exit code $($p.ExitCode)). Full logs: $out and $err"
+    }
+    Ok ("$Label finished in {0:N1} minutes" -f ((Get-Date) - $t0).TotalMinutes)
+}
+
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.2.1: checks, SDK download, music patch; no build yet)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.3.1: checks, SDK download, music patch, SDK build; the game is not built yet)"
 Write-Host ""
 
 # Windows
 if ([Environment]::Is64BitOperatingSystem) { Ok "64-bit Windows" } else { Bad "64-bit Windows is required" }
+
+# Short folder path (very long paths break some builds on Windows)
+if ($RepoRoot.Length -gt 45) { Warn "This folder path is long ($($RepoRoot.Length) characters). If the build fails with strange file errors, move the project to a short path such as C:\NHL2K8" }
 
 # Git
 $git = Get-Command git -ErrorAction SilentlyContinue
@@ -54,9 +115,9 @@ if ($cmake) {
 $ninja = Get-Command ninja -ErrorAction SilentlyContinue
 if (-not $ninja) {
     $found = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" -Recurse -Depth 8 -Filter ninja.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($found) { Warn ("Ninja is bundled with Visual Studio (" + $found.FullName + ") but is not on PATH") ; $ninja = $found }
+    if ($found) { Ok "Ninja is bundled with Visual Studio (setup will use it)" ; $ninja = $found }
 }
-if ($ninja) { Ok "Ninja found" } else { Bad "Ninja was not found" }
+if ($ninja) { if (Get-Command ninja -ErrorAction SilentlyContinue) { Ok "Ninja found" } } else { Bad "Ninja was not found" }
 
 # Clang
 $clangPath = $null
@@ -176,6 +237,34 @@ try {
             throw "The patch reported success but the music code is not in the file"
         }
     }
+
+    # ---- Build the SDK ----
+    Write-Host ""
+    Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash
+    $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
+    $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
+    if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {
+        Ok "SDK is already built and installed (use -Rebuild to force a fresh build)"
+    } else {
+        Import-VsEnvironment
+        foreach ($tool in @("clang++", "ninja", "cmake")) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is still not available after loading the Visual Studio environment" }
+        }
+        $cfgArgs = @("--preset", "win-amd64",
+                     "-DREXGLUE_BUILD_TESTS=OFF", "-DREXGLUE_ENABLE_FIDELITYFX=OFF",
+                     "-DREXGLUE_ENABLE_PERF_COUNTERS=ON", "-DREXGLUE_ENABLE_SANITIZERS=OFF",
+                     "-DREXGLUE_ENABLE_TRACY=ON", "-DREXGLUE_USE_D3D12=ON", "-DREXGLUE_USE_VULKAN=OFF")
+        Invoke-Step -Label "Configuring the SDK" -Exe "cmake" -ToolArgs $cfgArgs -WorkDir $SdkDir -LogName "sdk-configure"
+        foreach ($cfg in @("Release", "RelWithDebInfo")) { Invoke-Step -Label "Building the SDK ($cfg)" -Exe "cmake" -ToolArgs @("--build", $SdkBuildDir, "--config", $cfg, "--parallel") -WorkDir $SdkDir -LogName "sdk-build-$cfg" }
+        foreach ($cfg in @("Release", "RelWithDebInfo")) { Invoke-Step -Label "Installing the SDK ($cfg)" -Exe "cmake" -ToolArgs @("--install", $SdkBuildDir, "--config", $cfg) -WorkDir $SdkDir -LogName "sdk-install-$cfg" }
+        foreach ($rel in @("bin\rexglue.exe", "bin\rexruntime.dll", "bin\rexruntimerd.dll", "bin\rexgpu-xenos.dll", "bin\rexgpu-xenosrd.dll")) {
+            if (Test-Path (Join-Path $SdkInstallDir $rel)) { Ok "installed: $rel" } else { throw "missing after install: $rel" }
+        }
+        $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($runtimeDll))
+        if ($text.Contains("cannot find a song file")) { Ok "the built runtime contains the music code" } else { Warn "could not find the music code inside the built runtime - check this" }
+        Set-Content -Path $StampFile -Value $stamp -Encoding ascii
+    }
 } catch {
     Bad $_.Exception.Message
 }
@@ -186,7 +275,7 @@ if ($failed) {
     Write-Host "Setup stopped. Fix the problem above and run this again; finished steps are skipped." -ForegroundColor Red
     exit 1
 }
-Write-Host ("Done in {0:N1} minutes. The patched SDK source is at {1}" -f $sw.Elapsed.TotalMinutes, $SdkDir) -ForegroundColor Green
-Write-Host "(The build steps are not written yet; this is version 0.2.1.)"
+Write-Host ("Done in {0:N1} minutes. The patched, built SDK is installed at {1}" -f $sw.Elapsed.TotalMinutes, $SdkInstallDir) -ForegroundColor Green
+Write-Host "(The game build is not written yet; this is version 0.3.1.)"
 exit 0
 
