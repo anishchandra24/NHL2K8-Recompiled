@@ -3,7 +3,9 @@
 param(
     [string]$GameDataRoot = "",
     [switch]$ValidateOnly,
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$SkipIcon,
+    [switch]$NoShortcut
 )
 
 $ExpectedSha256 = "BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225"
@@ -86,7 +88,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.4: checks, SDK download and build, game build)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.5: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -272,6 +274,7 @@ try {
 }
 
 . (Join-Path $PSScriptRoot "build-game.ps1")
+. (Join-Path $PSScriptRoot "finish-install.ps1")
 $sw.Stop()
 Write-Host ""
 if ($failed) {
@@ -279,7 +282,8 @@ if ($failed) {
     exit 1
 }
 Write-Host ("Done in {0:N1} minutes. The game is in {1}" -f $sw.Elapsed.TotalMinutes, (Join-Path $RepoRoot "dist")) -ForegroundColor Green
-Write-Host "(Version 0.4: the game is built into the dist folder. The icon and shortcut come next.)"
+Write-Host "Start the game from the NHL 2K8 Recompiled shortcut on your desktop, or dist\Launch NHL 2K8.bat"
 exit 0
+
 
 
