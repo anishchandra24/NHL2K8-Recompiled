@@ -26,3 +26,4 @@ Thumbs.db
 # local build folders (SDK copy and output)
 /.local/
 /dist/
+/assets

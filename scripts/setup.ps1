@@ -33,6 +33,8 @@ function Git-Run {
 
 # Loads Visual Studio's build environment (the same thing a "Native Tools" prompt does).
 function Import-VsEnvironment {
+    if ($script:vsLoaded) { return }
+    $script:vsLoaded = $true
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $vswhere)) { throw "Visual Studio's vswhere.exe was not found. Install Visual Studio 2022 with the C++ Clang tools." }
     $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
@@ -84,7 +86,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.3.1: checks, SDK download, music patch, SDK build; the game is not built yet)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.4: checks, SDK download and build, game build)"
 Write-Host ""
 
 # Windows
@@ -269,13 +271,15 @@ try {
     Bad $_.Exception.Message
 }
 
+. (Join-Path $PSScriptRoot "build-game.ps1")
 $sw.Stop()
 Write-Host ""
 if ($failed) {
     Write-Host "Setup stopped. Fix the problem above and run this again; finished steps are skipped." -ForegroundColor Red
     exit 1
 }
-Write-Host ("Done in {0:N1} minutes. The patched, built SDK is installed at {1}" -f $sw.Elapsed.TotalMinutes, $SdkInstallDir) -ForegroundColor Green
-Write-Host "(The game build is not written yet; this is version 0.3.1.)"
+Write-Host ("Done in {0:N1} minutes. The game is in {1}" -f $sw.Elapsed.TotalMinutes, (Join-Path $RepoRoot "dist")) -ForegroundColor Green
+Write-Host "(Version 0.4: the game is built into the dist folder. The icon and shortcut come next.)"
 exit 0
+
 
