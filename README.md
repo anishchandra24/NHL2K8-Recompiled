@@ -25,8 +25,14 @@ Known issues:
 - Small colored speckles around the edges of the intro logo videos.
 - Stutter in busy scenes with a full crowd (pond hockey and mini rink run smoothly).
 - The F4 settings screen's "Save to config" button writes a config file the game can't read (a ReXGlue SDK bug). Edit settings by hand with forward slashes in paths.
+- The first time you reach a new screen (team select, starting a game, the faceoff, after a goal), the game can stutter for a few seconds. This looks like graphics shaders being prepared and saved, and it did not repeat on later visits.
 - Online features do not work.
 - Custom soundtracks have not been tested.
+
+## Tested on
+
+- Laptop: AMD Ryzen 7 7735HS, NVIDIA RTX 4060 Laptop GPU (and AMD Radeon integrated graphics), 32 GB RAM, Windows 10 Home. Plays smoothly except in busy scenes with a full crowd.
+- Desktop: AMD Ryzen 3 3200G, AMD Radeon RX 550, 16 GB RAM, Windows 10 Home. Plays, a little slower than the laptop, with the same stutter in busy scenes. Mini rink (2 on 2) was smooth.
 
 ## What you need
 
@@ -39,7 +45,7 @@ Known issues:
 
 ## Setup
 
-This is an early version, tested so far on one PC. Reports from other PCs are welcome.
+This is an early version, tested so far on two PCs (see "Tested on" above). Reports from other PCs are welcome.
 
 1. Install the tools listed above.
 2. Download this project into a short folder path (long paths can break the build). Open a command prompt and run:
@@ -47,7 +53,7 @@ This is an early version, tested so far on one PC. Reports from other PCs are we
         git clone https://github.com/anishchandra24/NHL2K8-Recompiled.git C:\NHL2K8
 
 3. Open the `C:\NHL2K8` folder and double-click `setup.bat`. When it asks, type the path to your extracted game folder (the folder that contains `default.xex`) and press Enter.
-4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies the music patch, builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on the developer's PC (a fast CPU and internet connection). Slower PCs will take longer.
+4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies the music patch, builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes including the downloads on a fast 8-core laptop, and about 19 minutes plus the downloads on a slower 4-core desktop. Slower PCs will take longer.
 5. Start the game from the "NHL 2K8 Recompiled" shortcut on your desktop, or run `dist\Launch NHL 2K8.bat`.
 
 Notes:
@@ -55,7 +61,7 @@ Notes:
 - If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not need network access to run (online features are not supported), and it started and ran with the prompt cancelled.
 - If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
 - Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
-- The game's icon is made from your own copy of the game during setup. It is not part of this repository.
+- The game's icon is made from your own copy of the game during setup. For that, the game window opens for a few seconds and closes by itself. This is expected. The icon is not part of this repository.
 - Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder, open a command prompt in it and run `rmdir assets`, so your game files are not touched.
 - Saves, settings and achievements are stored in `Documents\nhl2k8`, not in the project folder. Back this folder up before trying new builds.
 
@@ -73,7 +79,7 @@ An XInput game controller also works.
 
 ## How this was made
 
-This project was developed in a chat conversation with Claude, an AI assistant by Anthropic. Claude wrote the diagnostic commands, configuration fixes, code and patches. Claude had no access to the developer's computer: everything it wrote was copied in by hand, run and tested by the project owner (anishchandra24), who also reported what happened, supplied knowledge of the original game, and made all decisions. Claude Code was not used. It has been tested on one machine (Windows 10 Home, AMD Ryzen 7 7735HS, NVIDIA RTX 4060 Laptop GPU and AMD Radeon integrated graphics, 32 GB RAM) and has not been reviewed by anyone else.
+This project was developed in a chat conversation with Claude, an AI assistant by Anthropic. Claude wrote the diagnostic commands, configuration fixes, code and patches. Claude had no access to the developer's computer: everything it wrote was copied in by hand, run and tested by the project owner (anishchandra24), who also reported what happened, supplied knowledge of the original game, and made all decisions. Claude Code was not used. It has been tested by the project owner on two PCs (see "Tested on" above) and has not been reviewed by anyone else.
 
 ## Credits
 
@@ -85,6 +91,8 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 ## License
 
 The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. It grants no rights to the game's files, or to anything generated from them on your own computer. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+
+
 
 
 
