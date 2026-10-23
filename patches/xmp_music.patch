@@ -1,0 +1,445 @@
+diff --git a/src/kernel/xam/apps/xmp_app.cpp b/src/kernel/xam/apps/xmp_app.cpp
+index a5e9088..b8217ce 100644
+--- a/src/kernel/xam/apps/xmp_app.cpp
++++ b/src/kernel/xam/apps/xmp_app.cpp
+@@ -7,13 +7,38 @@
+  ******************************************************************************
+  *
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
++ * @modified    Local patch - title playlist playback via Windows MCI (WMA/MP3)
+  */
+ 
++#include <rex/cvar.h>
+ #include <rex/kernel/xam/apps/xmp_app.h>
+ #include <rex/logging.h>
+ #include <rex/system/xthread.h>
+ #include <rex/thread.h>
+ 
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <deque>
++#include <filesystem>
++#include <mutex>
++#include <random>
++#include <string>
++#include <thread>
++
++#ifdef _WIN32
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#include <windows.h>
++#include <mmsystem.h>
++#pragma comment(lib, "winmm.lib")
++#endif
++
+ namespace rex {
+ namespace kernel {
+ namespace xam {
+@@ -22,6 +47,239 @@ using namespace rex::system::xam;
+ namespace apps {
+ using namespace rex::system;
+ 
++namespace {
++
++#ifdef _WIN32
++
++// Plays one song at a time through the Windows MCI interface. All MCI calls
++// happen on a single worker thread; the game threads only post commands.
++class MusicPlayer {
++ public:
++  static MusicPlayer& Get() {
++    static MusicPlayer* instance = new MusicPlayer();  // intentionally leaked
++    return *instance;
++  }
++
++  void Play(std::wstring path, float volume) { Post({Cmd::kPlay, std::move(path), volume}); }
++  void Pause() { Post({Cmd::kPause, std::wstring(), 0.0f}); }
++  void Resume() { Post({Cmd::kResume, std::wstring(), 0.0f}); }
++  void Stop() { Post({Cmd::kStop, std::wstring(), 0.0f}); }
++  void SetVolume(float volume) { Post({Cmd::kVolume, std::wstring(), volume}); }
++  bool ConsumeEnded() { return ended_.exchange(false); }
++
++ private:
++  enum class Cmd { kPlay, kPause, kResume, kStop, kVolume };
++  struct Command {
++    Cmd cmd;
++    std::wstring path;
++    float volume;
++  };
++
++  void Post(Command command) {
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      if (!started_) {
++        started_ = true;
++        std::thread([this] { Run(); }).detach();
++      }
++      queue_.push_back(std::move(command));
++    }
++    cv_.notify_one();
++  }
++
++  static DWORD Send(const std::wstring& command, std::wstring* out = nullptr) {
++    wchar_t buffer[128] = {0};
++    DWORD err = mciSendStringW(command.c_str(), buffer, 127, nullptr);
++    if (out) {
++      *out = buffer;
++    }
++    return err;
++  }
++
++  static void ApplyVolume(float volume) {
++    int v = static_cast<int>(volume * 1000.0f);
++    if (v < 0) v = 0;
++    if (v > 1000) v = 1000;
++    Send(L"setaudio xmp volume to " + std::to_wstring(v));
++  }
++
++  void Run() {
++    bool open = false;
++    bool playing = false;
++    bool paused = false;
++    float volume = 1.0f;
++    auto started_at = std::chrono::steady_clock::now();
++    for (;;) {
++      Command c{};
++      bool have = false;
++      {
++        std::unique_lock<std::mutex> lock(mutex_);
++        cv_.wait_for(lock, std::chrono::milliseconds(200), [this] { return !queue_.empty(); });
++        if (!queue_.empty()) {
++          c = std::move(queue_.front());
++          queue_.pop_front();
++          have = true;
++        }
++      }
++      if (have) {
++        switch (c.cmd) {
++          case Cmd::kPlay: {
++            if (open) {
++              Send(L"stop xmp");
++              Send(L"close xmp");
++              open = false;
++            }
++            volume = c.volume;
++            DWORD err = Send(L"open \"" + c.path + L"\" type mpegvideo alias xmp");
++            if (err) {
++              REXKRNL_ERROR("XMP: MCI open failed (error {})", static_cast<uint32_t>(err));
++              playing = false;
++              break;
++            }
++            open = true;
++            ApplyVolume(volume);
++            err = Send(L"play xmp");
++            if (err) {
++              REXKRNL_ERROR("XMP: MCI play failed (error {})", static_cast<uint32_t>(err));
++              Send(L"close xmp");
++              open = false;
++              playing = false;
++              break;
++            }
++            playing = true;
++            paused = false;
++            started_at = std::chrono::steady_clock::now();
++            break;
++          }
++          case Cmd::kPause:
++            if (open) {
++              Send(L"pause xmp");
++            }
++            paused = true;
++            break;
++          case Cmd::kResume:
++            if (open) {
++              Send(L"resume xmp");
++            }
++            paused = false;
++            break;
++          case Cmd::kStop:
++            if (open) {
++              Send(L"stop xmp");
++              Send(L"close xmp");
++            }
++            open = false;
++            playing = false;
++            paused = false;
++            break;
++          case Cmd::kVolume:
++            volume = c.volume;
++            if (open) {
++              ApplyVolume(volume);
++            }
++            break;
++        }
++      } else if (playing && !paused && open &&
++                 std::chrono::steady_clock::now() - started_at > std::chrono::milliseconds(1500)) {
++        std::wstring mode;
++        Send(L"status xmp mode", &mode);
++        if (mode == L"stopped") {
++          Send(L"close xmp");
++          open = false;
++          playing = false;
++          ended_ = true;
++        }
++      }
++    }
++  }
++
++  std::mutex mutex_;
++  std::condition_variable cv_;
++  std::deque<Command> queue_;
++  bool started_ = false;
++  std::atomic<bool> ended_{false};
++};
++
++// The game gives paths like game:\Z_APO_P.wma; find that file name in the game folder.
++std::filesystem::path ResolveSongPath(const std::u16string& guest_path) {
++  std::string root_str = rex::cvar::GetFlagByName("game_data_root");
++  std::wstring wide(guest_path.begin(), guest_path.end());
++  size_t cut = wide.find_last_of(L"\\/:");
++  std::wstring file = (cut == std::wstring::npos) ? wide : wide.substr(cut + 1);
++  if (file.empty() || root_str.empty()) {
++    return std::filesystem::path();
++  }
++  std::filesystem::path root(root_str);
++  std::error_code ec;
++  std::filesystem::path direct = root / file;
++  if (std::filesystem::exists(direct, ec)) {
++    return direct;
++  }
++  auto it = std::filesystem::recursive_directory_iterator(
++      root, std::filesystem::directory_options::skip_permission_denied, ec);
++  for (; !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
++    if (it->is_regular_file(ec) && _wcsicmp(it->path().filename().c_str(), file.c_str()) == 0) {
++      return it->path();
++    }
++  }
++  return std::filesystem::path();
++}
++
++#else
++
++class MusicPlayer {
++ public:
++  static MusicPlayer& Get() {
++    static MusicPlayer instance;
++    return instance;
++  }
++  void Play(std::wstring, float) {}
++  void Pause() {}
++  void Resume() {}
++  void Stop() {}
++  void SetVolume(float) {}
++  bool ConsumeEnded() { return false; }
++};
++
++std::filesystem::path ResolveSongPath(const std::u16string&) { return std::filesystem::path(); }
++
++#endif
++
++bool IsShuffle(XmpApp::PlaybackMode mode) { return static_cast<uint32_t>(mode) == 1; }
++
++size_t RandomIndex(size_t count) {
++  static std::mutex rng_mutex;
++  static std::mt19937 rng{std::random_device{}()};
++  std::lock_guard<std::mutex> lock(rng_mutex);
++  return std::uniform_int_distribution<size_t>(0, count - 1)(rng);
++}
++
++size_t NextIndex(size_t current, size_t count, bool shuffle) {
++  if (count <= 1) {
++    return 0;
++  }
++  if (!shuffle) {
++    return (current + 1) % count;
++  }
++  size_t next = current;
++  while (next == current) {
++    next = RandomIndex(count);
++  }
++  return next;
++}
++
++void PlaySong(const XmpApp::Song& song, float volume) {
++  std::filesystem::path path = ResolveSongPath(song.file_path);
++  if (path.empty()) {
++    REXKRNL_ERROR("XMP: cannot find a song file for '{}'", rex::string::to_utf8(song.file_path));
++    return;
++  }
++  REXKRNL_DEBUG("XMP: playing '{}' from {}", rex::string::to_utf8(song.name), path.string());
++  MusicPlayer::Get().Play(path.wstring(), volume);
++}
++
++}  // namespace
++
+ XmpApp::XmpApp(KernelState* kernel_state)
+     : App(kernel_state, 0xFA),
+       state_(State::kIdle),
+@@ -134,11 +392,23 @@ X_HRESULT XmpApp::XMPPlayTitlePlaylist(uint32_t playlist_handle, uint32_t song_h
+     return X_E_SUCCESS;
+   }
+ 
+-  // Start playlist?
+-  REXKRNL_WARN("Playlist playback not supported");
++  size_t index = 0;
++  if (song_handle) {
++    for (size_t i = 0; i < playlist->songs.size(); ++i) {
++      if (playlist->songs[i]->handle == song_handle) {
++        index = i;
++        break;
++      }
++    }
++  } else if (!playlist->songs.empty() && IsShuffle(playback_mode_)) {
++    index = RandomIndex(playlist->songs.size());
++  }
+   active_playlist_ = playlist;
+-  active_song_index_ = 0;
++  active_song_index_ = static_cast<int>(index);
+   state_ = State::kPlaying;
++  if (!playlist->songs.empty()) {
++    PlaySong(*playlist->songs[index], volume_);
++  }
+   OnStateChanged();
+   kernel_state_->BroadcastNotification(kMsgPlaybackBehaviorChanged, 1);
+   return X_E_SUCCESS;
+@@ -148,6 +418,7 @@ X_HRESULT XmpApp::XMPContinue() {
+   REXKRNL_DEBUG("XMPContinue()");
+   if (state_ == State::kPaused) {
+     state_ = State::kPlaying;
++    MusicPlayer::Get().Resume();
+   }
+   OnStateChanged();
+   return X_E_SUCCESS;
+@@ -159,6 +430,7 @@ X_HRESULT XmpApp::XMPStop(uint32_t unk) {
+   active_playlist_ = nullptr;  // ?
+   active_song_index_ = 0;
+   state_ = State::kIdle;
++  MusicPlayer::Get().Stop();
+   OnStateChanged();
+   return X_E_SUCCESS;
+ }
+@@ -167,6 +439,7 @@ X_HRESULT XmpApp::XMPPause() {
+   REXKRNL_DEBUG("XMPPause()");
+   if (state_ == State::kPlaying) {
+     state_ = State::kPaused;
++    MusicPlayer::Get().Pause();
+   }
+   OnStateChanged();
+   return X_E_SUCCESS;
+@@ -174,18 +447,21 @@ X_HRESULT XmpApp::XMPPause() {
+ 
+ X_HRESULT XmpApp::XMPNext() {
+   REXKRNL_DEBUG("XMPNext()");
+-  if (!active_playlist_) {
++  if (!active_playlist_ || active_playlist_->songs.empty()) {
+     return X_E_NOTFOUND;
+   }
+   state_ = State::kPlaying;
+-  active_song_index_ = (active_song_index_ + 1) % active_playlist_->songs.size();
++  active_song_index_ = static_cast<int>(NextIndex(static_cast<size_t>(active_song_index_),
++                                                  active_playlist_->songs.size(),
++                                                  IsShuffle(playback_mode_)));
++  PlaySong(*active_playlist_->songs[active_song_index_], volume_);
+   OnStateChanged();
+   return X_E_SUCCESS;
+ }
+ 
+ X_HRESULT XmpApp::XMPPrevious() {
+   REXKRNL_DEBUG("XMPPrevious()");
+-  if (!active_playlist_) {
++  if (!active_playlist_ || active_playlist_->songs.empty()) {
+     return X_E_NOTFOUND;
+   }
+   state_ = State::kPlaying;
+@@ -194,6 +470,7 @@ X_HRESULT XmpApp::XMPPrevious() {
+   } else {
+     --active_song_index_;
+   }
++  PlaySong(*active_playlist_->songs[active_song_index_], volume_);
+   OnStateChanged();
+   return X_E_SUCCESS;
+ }
+@@ -204,6 +481,25 @@ void XmpApp::OnStateChanged() {
+ 
+ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+                                       uint32_t buffer_length) {
++  // When the player thread reports that a song ended, move on to the next one.
++  // The game polls this app constantly, so this runs on a game thread.
++  if (MusicPlayer::Get().ConsumeEnded()) {
++    bool advanced = false;
++    {
++      auto global_lock = global_critical_region_.Acquire();
++      if (state_ == State::kPlaying && active_playlist_ && !active_playlist_->songs.empty()) {
++        active_song_index_ = static_cast<int>(NextIndex(static_cast<size_t>(active_song_index_),
++                                                        active_playlist_->songs.size(),
++                                                        IsShuffle(playback_mode_)));
++        PlaySong(*active_playlist_->songs[active_song_index_], volume_);
++        advanced = true;
++      }
++    }
++    if (advanced) {
++      OnStateChanged();
++    }
++  }
++
+   // NOTE: buffer_length may be zero or valid.
+   auto buffer = memory_->TranslateVirtual(buffer_ptr);
+   switch (message) {
+@@ -298,6 +594,7 @@ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       assert_true(args->xmp_client == 0x00000002);
+       REXKRNL_DEBUG("XMPSetVolume({:g})", float(args->value));
+       volume_ = args->value;
++      MusicPlayer::Get().SetVolume(volume_);
+       return X_E_SUCCESS;
+     }
+     case 0x0007000D: {
+@@ -343,21 +640,33 @@ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       auto info = memory_->TranslateVirtual(args->info_ptr);
+       assert_true(args->xmp_client == 0x00000002);
+       assert_zero(args->unk_ptr);
+-      REXKRNL_ERROR("XMPGetInfo?({:08X}, {:08X})", uint32_t(args->unk_ptr),
++      REXKRNL_DEBUG("XMPGetInfo?({:08X}, {:08X})", uint32_t(args->unk_ptr),
+                     uint32_t(args->info_ptr));
+-      if (!active_playlist_) {
++      if (!active_playlist_ || active_playlist_->songs.empty()) {
+         return X_E_FAIL;
+       }
+       auto& song = active_playlist_->songs[active_song_index_];
++      REXKRNL_DEBUG("XMP: info name='{}' artist='{}' album='{}'", rex::string::to_utf8(song->name),
++                    rex::string::to_utf8(song->artist), rex::string::to_utf8(song->album));
++      // Each text field is a fixed 40-character (80-byte) big-endian UTF-16 slot,
++      // null-terminated. The original code spaced them 40 bytes apart, so long
++      // titles ran into the next field.
++      const uint32_t text_base = 4 + 572;
++      auto put_text = [&](uint32_t offset, const std::u16string& text) {
++        uint8_t* dest = info + text_base + offset;
++        size_t n = std::min<size_t>(text.size(), 39);
++        for (size_t i = 0; i < n; ++i) {
++          uint16_t c = static_cast<uint16_t>(text[i]);
++          dest[i * 2] = static_cast<uint8_t>(c >> 8);
++          dest[i * 2 + 1] = static_cast<uint8_t>(c & 0xFF);
++        }
++        dest[n * 2] = 0;
++        dest[n * 2 + 1] = 0;
++      };
+       memory::store_and_swap<uint32_t>(info + 0, song->handle);
+-      memory::store_and_swap<std::u16string>(info + 4 + 572 + 0, song->name);
+-      memory::store_and_swap<std::u16string>(info + 4 + 572 + 40, song->artist);
+-      memory::store_and_swap<std::u16string>(info + 4 + 572 + 80, song->album);
+-      memory::store_and_swap<std::u16string>(info + 4 + 572 + 120, song->album_artist);
+-      memory::store_and_swap<std::u16string>(info + 4 + 572 + 160, song->genre);
+-      memory::store_and_swap<uint32_t>(info + 4 + 572 + 200, song->track_number);
+-      memory::store_and_swap<uint32_t>(info + 4 + 572 + 204, song->duration_ms);
+-      memory::store_and_swap<uint32_t>(info + 4 + 572 + 208, static_cast<uint32_t>(song->format));
++      put_text(0, song->name);
++      put_text(80, song->artist);
++      put_text(160, song->album);
+       return X_E_SUCCESS;
+     }
+     case 0x00070013: {

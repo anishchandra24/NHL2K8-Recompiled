@@ -1,0 +1,24 @@
+# game files and generated code (each user makes their own)
+/assets/
+/generated/default/
+*.xex
+*.iso
+
+# build output
+/out/
+
+# saves, settings, logs, backups and personal files
+*.log
+*.dmp
+nhl2k8.toml
+*.bak*
+*.before_*
+
+# the game's own artwork (made from the user's own copy)
+/res/
+*.ico
+
+# editor and system files
+.vs/
+.vscode/
+Thumbs.db
