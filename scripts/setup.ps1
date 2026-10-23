@@ -22,6 +22,7 @@ $StampFile = Join-Path $LocalDir "sdk-build.stamp"
 $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
+. (Join-Path $PSScriptRoot "libmspack.ps1")
 
 function Ok($msg)   { Write-Host "[ ok ] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }
@@ -88,7 +89,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.5: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.5.1: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -206,31 +207,8 @@ try {
         Git-Run @("-C", $SdkDir, "submodule", "update", "--init", "--recursive")
     }
     Ok "Bundled libraries ready"
-    # libmspack ships its sources as symlinks. Windows Git without symlink support turns
-    # them into tiny text files holding the target path. Put the real files in place.
-    $mspackDir = Join-Path $SdkDir "thirdparty\libmspack\cabextract\mspack"
-    $fixed = 0
-    foreach ($f in Get-ChildItem $mspackDir -File) {
-        if ($f.Length -lt 100) {
-            $rel = (Get-Content -LiteralPath $f.FullName -Raw).Trim()
-            if ($rel -like "../*") {
-                $src = [IO.Path]::GetFullPath((Join-Path $mspackDir $rel))
-                if (Test-Path -LiteralPath $src) {
-                    Copy-Item -LiteralPath $src -Destination $f.FullName -Force
-                    $fixed++
-                }
-            }
-        }
-    }
-    foreach ($n in @("chm.h", "kwaj.h", "lit.h")) {
-        $src = Join-Path $SdkDir ("thirdparty\libmspack\libmspack\mspack\" + $n)
-        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $mspackDir $n) -Force }
-    }
-    if ((Get-Item (Join-Path $mspackDir "lzxd.c")).Length -gt 1000) {
-        Ok "libmspack sources ready ($fixed placeholder files replaced)"
-    } else {
-        throw "libmspack sources are still placeholders"
-    }
+    $fixedCount = [int](@(Repair-Libmspack -SdkDir $SdkDir) | Select-Object -Last 1)
+    Ok "libmspack sources ready ($fixedCount files replaced)"
     Ok ("SDK version: " + (& git -C $SdkDir describe --tags --always))
 
     $target = Join-Path $SdkDir "src\kernel\xam\apps\xmp_app.cpp"
@@ -292,6 +270,7 @@ if ($failed) {
 Write-Host ("Done in {0:N1} minutes. The game is in {1}" -f $sw.Elapsed.TotalMinutes, (Join-Path $RepoRoot "dist")) -ForegroundColor Green
 Write-Host "Start the game from the NHL 2K8 Recompiled shortcut on your desktop, or dist\Launch NHL 2K8.bat"
 exit 0
+
 
 
 
