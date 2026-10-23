@@ -27,3 +27,4 @@ Thumbs.db
 /.local/
 /dist/
 /assets
+/installer/out/
