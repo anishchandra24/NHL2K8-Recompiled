@@ -2,3 +2,5 @@
 *.patch -text
 *.bat text eol=crlf
 *.ps1 text eol=crlf
+nhl2k8_manifest.toml text eol=lf
+generated/rexglue.cmake text eol=lf
