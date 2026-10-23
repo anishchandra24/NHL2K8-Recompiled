@@ -30,14 +30,34 @@ Known issues:
 
 ## What you need
 
-- Windows 10 or 11, 64-bit
-- Your own copy of NHL 2K8 for Xbox 360 (Title ID 54540809, version 0.0.0.3), extracted so that you have `default.xex` and the game's files in one folder. The supported `default.xex` is 9,383,936 bytes with the SHA-256 hash `BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225`.
-- Visual Studio 2022 with the C++ Clang tools (tested with Clang 19.1.5), plus CMake and Ninja
-- The ReXGlue SDK, version 0.10.0 (commit c94f5eb)
+- Windows 10 or 11, 64-bit, and a graphics card that supports Direct3D 12
+- About 10 GB of free disk space for the build, plus room for your extracted game files
+- An internet connection for the first setup (it downloads the ReXGlue SDK and its libraries)
+- Your own copy of NHL 2K8 for Xbox 360 (Title ID 54540809, version 0.0.0.3), extracted so that `default.xex` and the game's other files sit in one folder. Extract your game's disc image with a tool such as Xbox Image Browser. The supported `default.xex` is 9,383,936 bytes with the SHA-256 hash `BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225`. Other releases are not supported, and setup warns you if yours is different.
+- Visual Studio 2022 Community (free), with these parts ticked in the Visual Studio Installer: "Desktop development with C++", "C++ Clang Compiler for Windows" and "C++ CMake tools for Windows". The Build Tools edition and other Visual Studio versions have not been tested.
+- Git for Windows
 
 ## Setup
 
-Setup instructions are coming soon. A setup script that builds everything from your own game folder is being written and tested.
+This is an early version, tested so far on one PC. Reports from other PCs are welcome.
+
+1. Install the tools listed above.
+2. Download this project into a short folder path (long paths can break the build). Open a command prompt and run:
+
+        git clone https://github.com/anishchandra24/NHL2K8-Recompiled.git C:\NHL2K8
+
+3. Open the `C:\NHL2K8` folder and double-click `setup.bat`. When it asks, type the path to your extracted game folder (the folder that contains `default.xex`) and press Enter.
+4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies the music patch, builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on the developer's PC (a fast CPU and internet connection). Slower PCs will take longer.
+5. Start the game from the "NHL 2K8 Recompiled" shortcut on your desktop, or run `dist\Launch NHL 2K8.bat`.
+
+Notes:
+
+- If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not use the network, and it started and ran with the prompt cancelled.
+- If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
+- Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
+- The game's icon is made from your own copy of the game during setup. It is not part of this repository.
+- Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder, open a command prompt in it and run `rmdir assets`, so your game files are not touched.
+- Saves, settings and achievements are stored in `Documents\nhl2k8`, not in the project folder. Back this folder up before trying new builds.
 
 ## Controls (keyboard)
 
@@ -65,4 +85,5 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 ## License
 
 The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. It grants no rights to the game's files, or to anything generated from them on your own computer. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+
 
