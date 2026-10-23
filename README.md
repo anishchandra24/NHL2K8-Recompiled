@@ -52,7 +52,7 @@ This is an early version, tested so far on one PC. Reports from other PCs are we
 
 Notes:
 
-- If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not use the network, and it started and ran with the prompt cancelled.
+- If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not need network access to run (online features are not supported), and it started and ran with the prompt cancelled.
 - If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
 - Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
 - The game's icon is made from your own copy of the game during setup. It is not part of this repository.
@@ -85,5 +85,6 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 ## License
 
 The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. It grants no rights to the game's files, or to anything generated from them on your own computer. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+
 
 
