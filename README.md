@@ -36,16 +36,32 @@ Known issues:
 
 ## What you need
 
-- Windows 10 or 11, 64-bit, and a graphics card that supports Direct3D 12
+- Windows 10 or 11, 64-bit (only Windows 10 has been tested), and a graphics card that supports Direct3D 12
 - About 10 GB of free disk space for the build, plus room for your extracted game files
 - An internet connection for the first setup (it downloads the ReXGlue SDK and its libraries)
 - Your own copy of NHL 2K8 for Xbox 360 (Title ID 54540809, version 0.0.0.3), extracted so that `default.xex` and the game's other files sit in one folder. Extract your game's disc image with a tool such as Xbox Image Browser. The supported `default.xex` is 9,383,936 bytes with the SHA-256 hash `BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225`. Other releases are not supported, and setup warns you if yours is different.
 - Visual Studio 2022 Community (free), with these parts ticked in the Visual Studio Installer: "Desktop development with C++", "C++ Clang Compiler for Windows" and "C++ CMake tools for Windows". The Build Tools edition and other Visual Studio versions have not been tested.
-- Git for Windows
+- Git for Windows (the setup program under "Easy install" can install Git and Visual Studio for you if they are missing)
 
 ## Setup
 
-This is an early version, tested so far on two PCs (see "Tested on" above). Reports from other PCs are welcome.
+This is an early version, tested so far on two PCs (see "Tested on" above). Reports from other PCs, good or bad, are welcome: please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose).
+
+### Easy install (recommended)
+
+1. Download `NHL2K8-Recompiled-Setup.exe` from the [Releases page](https://github.com/anishchandra24/NHL2K8-Recompiled/releases).
+2. Run it. Windows may show "Windows protected your PC" because the program is not code-signed. Click "More info", then "Run anyway". You can check your download against the SHA-256 fingerprint in the release notes.
+3. Click "Browse..." next to "Your game folder" and choose the folder that contains `default.xex`. Keep the suggested install folder or choose another short path, then click "Install".
+4. Wait. If Git or Visual Studio 2022 Community are missing, the program installs them with Windows' package installer (Windows asks for permission), then downloads the project and builds the game. Allow 15 to 30 minutes, plus the downloads and any Visual Studio install.
+5. When it says it is done, click "Play", or use the "NHL 2K8 Recompiled" shortcut on your desktop.
+
+To remove it, use Settings, Apps, "NHL 2K8 Recompiled" (or the "Uninstall" button in the setup program). Uninstalling never touches your game files, and it asks before deleting your saves.
+
+Automatic installation of Visual Studio has not been tested on a PC that does not have it. If you try it, please open an issue and tell me how it went, whether it worked or not. If it fails, install the tools by hand (see "What you need") and run the setup program again.
+
+### Manual install
+
+If you prefer to do it by hand, or the setup program does not work for you:
 
 1. Install the tools listed above.
 2. Download this project into a short folder path (long paths can break the build). Open a command prompt and run:
@@ -53,7 +69,7 @@ This is an early version, tested so far on two PCs (see "Tested on" above). Repo
         git clone https://github.com/anishchandra24/NHL2K8-Recompiled.git C:\NHL2K8
 
 3. Open the `C:\NHL2K8` folder and double-click `setup.bat`. When it asks, type the path to your extracted game folder (the folder that contains `default.xex`) and press Enter.
-4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies the music patch, builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes including the downloads on a fast 8-core laptop, and about 19 minutes plus the downloads on a slower 4-core desktop. Slower PCs will take longer.
+4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies the music patch, builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on a fast 8-core laptop and about 21 minutes on a slower 4-core desktop, both including the downloads. Slower PCs or connections will take longer.
 5. Start the game from the "NHL 2K8 Recompiled" shortcut on your desktop, or run `dist\Launch NHL 2K8.bat`.
 
 Notes:
@@ -62,8 +78,14 @@ Notes:
 - If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
 - Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
 - The game's icon is made from your own copy of the game during setup. For that, the game window opens for a few seconds and closes by itself. This is expected. The icon is not part of this repository.
-- Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder, open a command prompt in it and run `rmdir assets`, so your game files are not touched.
+- Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder by hand, open a command prompt in it and run `rmdir assets`, so your game files are not touched. The uninstaller does this for you.
 - Saves, settings and achievements are stored in `Documents\nhl2k8`, not in the project folder. Back this folder up before trying new builds.
+
+## Reporting problems and test results
+
+Found a bug, or hit a problem during setup? Please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose). Test reports are just as welcome as bug reports, including "it worked": this project has only been tested on two PCs, so every report helps. Useful things to include are your Windows version, your CPU, graphics card and RAM, whether setup finished, and the last lines of the logs. The setup program's log is `%TEMP%\NHL2K8-Setup.log`, and the setup steps log to `.local\logs` inside the install folder.
+
+Please do not post or link game files. Requests for game files will be removed.
 
 ## Controls (keyboard)
 
@@ -91,6 +113,8 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 ## License
 
 The files in this repository are released under the GNU General Public License v3.0 (see LICENSE). The license covers only what this project is entitled to license. It grants no rights to the game's files, or to anything generated from them on your own computer. The banner image shows artwork and logos owned by their respective owners and is not covered by this license. The music patch modifies code from the ReXGlue SDK and Xenia, which keep their own BSD licenses (see THIRD_PARTY_NOTICES.md).
+
+
 
 
 
