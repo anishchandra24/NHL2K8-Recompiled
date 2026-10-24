@@ -112,7 +112,7 @@ namespace Nhl2k8Setup
                     "\r\n\r\nIt does NOT touch your game files, Git or Visual Studio.";
                 if (assetsIsRealFolder) msg += "\r\n\r\nThe 'assets' folder inside it holds real files (it is not a link to your game folder), so it will be kept.";
                 msg += "\r\n\r\nContinue?";
-                if (MessageBox.Show(owner, msg, Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return 0;
+                if (!ConfirmByTyping(owner, msg, Path.GetFileName(dir))) return 0;
 
                 string docs = Environment.GetEnvironmentVariable("NHL2K8_DOCS_OVERRIDE");
                 if (string.IsNullOrEmpty(docs)) docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -194,6 +194,41 @@ namespace Nhl2k8Setup
             {
                 MessageBox.Show(owner, "The uninstall stopped: " + ex.Message, Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 0;
+            }
+        }
+
+        static bool ConfirmByTyping(IWin32Window owner, string message, string word)
+        {
+            using (Form f = new Form())
+            {
+                f.Text = Title;
+                f.FormBorderStyle = FormBorderStyle.FixedDialog;
+                f.StartPosition = FormStartPosition.CenterScreen;
+                f.MinimizeBox = false;
+                f.MaximizeBox = false;
+                f.ShowInTaskbar = false;
+                f.ClientSize = new System.Drawing.Size(460, 260);
+                Label l = new Label();
+                l.Text = message + "\r\n\r\nTo confirm, type the name of this folder:  " + word;
+                l.SetBounds(12, 12, 436, 170);
+                f.Controls.Add(l);
+                TextBox t = new TextBox();
+                t.SetBounds(12, 190, 436, 24);
+                f.Controls.Add(t);
+                Button ok = new Button();
+                ok.Text = "Uninstall";
+                ok.Enabled = false;
+                ok.DialogResult = DialogResult.OK;
+                ok.SetBounds(262, 222, 90, 28);
+                f.Controls.Add(ok);
+                Button cancel = new Button();
+                cancel.Text = "Cancel";
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.SetBounds(358, 222, 90, 28);
+                f.Controls.Add(cancel);
+                t.TextChanged += delegate { ok.Enabled = string.Equals(t.Text.Trim(), word, StringComparison.OrdinalIgnoreCase); };
+                f.CancelButton = cancel;
+                return f.ShowDialog(owner) == DialogResult.OK;
             }
         }
 

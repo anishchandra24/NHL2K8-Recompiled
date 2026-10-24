@@ -24,7 +24,7 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.3";
+        const string WizardVersion = "1.4";
         const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -394,7 +394,7 @@ namespace Nhl2k8Setup
             return File.Exists(p) ? p : null;
         }
 
-        static string Capture(string file, string args)
+        static string RunAndRead(string file, string args)
         {
             try
             {
@@ -432,7 +432,7 @@ namespace Nhl2k8Setup
             string args = "-latest -products * -version [17.0,18.0) ";
             if (requireParts) args += "-requires " + VsClang + " " + VsCmake + " ";
             args += "-property installationPath";
-            return FirstLine(Capture(vswhere, args));
+            return FirstLine(RunAndRead(vswhere, args));
         }
 
         string EnsureGit()
