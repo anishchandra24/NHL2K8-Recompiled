@@ -13,17 +13,18 @@ namespace Nhl2k8Setup
     static class Program
     {
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            if (Uninstaller.Handle(args)) { return; }
             Application.Run(new SetupForm());
         }
     }
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.2";
+        const string WizardVersion = "1.3";
         const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -38,6 +39,7 @@ namespace Nhl2k8Setup
         Button startButton;
         Button playButton;
         Button logButton;
+        Button uninstallButton;
         Label statusLabel;
         Process current;
         volatile bool running;
@@ -85,27 +87,33 @@ namespace Nhl2k8Setup
 
             startButton = new Button();
             startButton.Text = "Install";
-            startButton.SetBounds(12, 178 + b, 140, 32);
+            startButton.SetBounds(12, 178 + b, 100, 32);
             startButton.Click += OnStart;
             Controls.Add(startButton);
 
             playButton = new Button();
             playButton.Text = "Play";
-            playButton.SetBounds(160, 178 + b, 140, 32);
+            playButton.SetBounds(118, 178 + b, 100, 32);
             playButton.Enabled = false;
             playButton.Click += OnPlay;
             Controls.Add(playButton);
 
             logButton = new Button();
             logButton.Text = "Open log";
-            logButton.SetBounds(308, 178 + b, 110, 32);
+            logButton.SetBounds(224, 178 + b, 100, 32);
             logButton.Click += OnOpenLog;
             Controls.Add(logButton);
+
+            uninstallButton = new Button();
+            uninstallButton.Text = "Uninstall";
+            uninstallButton.SetBounds(330, 178 + b, 100, 32);
+            uninstallButton.Click += OnUninstall;
+            Controls.Add(uninstallButton);
 
             statusLabel = new Label();
             statusLabel.Text = "Ready.";
             statusLabel.AutoEllipsis = true;
-            statusLabel.SetBounds(428, 186 + b, 280, 20);
+            statusLabel.SetBounds(440, 186 + b, 268, 20);
             statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(statusLabel);
 
@@ -126,6 +134,14 @@ namespace Nhl2k8Setup
                 statusLabel.Text = "Already installed in C:\\NHL2K8.";
             }
             logBox.Text = "A copy of this log is saved in " + logFile + Environment.NewLine;
+            string registered = Uninstaller.FindInstalled();
+            if (registered != null && File.Exists(Path.Combine(registered, "dist\\nhl2k8.exe")))
+            {
+                installedDir = registered;
+                installBox.Text = registered;
+                playButton.Enabled = true;
+                statusLabel.Text = "Installed in " + registered + ".";
+            }
             WriteLogFile("---- NHL 2K8 Recompiled setup wizard " + WizardVersion + " started on Windows " + Environment.OSVersion.Version + " ----");
         }
 
@@ -239,6 +255,21 @@ namespace Nhl2k8Setup
             MessageBox.Show(this, message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
+        void OnUninstall(object sender, EventArgs e)
+        {
+            if (running) { Warn("Setup is still running. Wait for it to finish, or close this window to stop it."); return; }
+            string dir = installBox.Text.Trim().Trim('"').TrimEnd('\\');
+            int result = Uninstaller.Run(this, dir);
+            if (result == 2) { Close(); return; }
+            if (result == 1)
+            {
+                installedDir = null;
+                playButton.Enabled = false;
+                statusLabel.Text = "Uninstalled.";
+                Log("Uninstalled " + dir);
+            }
+        }
+
         void OnOpenLog(object sender, EventArgs e)
         {
             try { Process.Start("notepad.exe", "\"" + logFile + "\""); }
@@ -295,6 +326,7 @@ namespace Nhl2k8Setup
                 ok = File.Exists(Path.Combine(dir, "dist\\nhl2k8.exe"));
                 if (!ok) throw new Exception("Setup finished but dist\\nhl2k8.exe was not created.");
                 installedDir = dir;
+                Uninstaller.Register(dir, new Action<string>(Log));
                 Log("");
                 Log("All done. Start the game with the Play button, or with the NHL 2K8 Recompiled shortcut on your desktop.");
                 SetStatus("Done. Click Play.");

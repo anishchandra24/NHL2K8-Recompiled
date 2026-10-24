@@ -33,7 +33,7 @@ if (Test-Path $banner) { $extra += ("/resource:" + $banner + ",banner.png"); Wri
 $icon = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\res\nhl2k8.ico"))
 $iconArgs = @()
 if (Test-Path $icon) { $iconArgs += ("/win32icon:" + $icon); Write-Host "icon: $icon" } else { Write-Host "no res\nhl2k8.ico found - building without a program icon" }
-$src = Join-Path $PSScriptRoot "Installer.cs"
+$src = @((Join-Path $PSScriptRoot "Installer.cs"), (Join-Path $PSScriptRoot "Uninstaller.cs"))
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /win32manifest:$manifest /out:$exe /r:System.Windows.Forms.dll /r:System.Drawing.dll $iconArgs $extra $src
 if (($LASTEXITCODE -ne 0) -and ($iconArgs.Count -gt 0)) {
     Write-Host "The compiler did not accept the icon; building without it."
@@ -41,3 +41,4 @@ if (($LASTEXITCODE -ne 0) -and ($iconArgs.Count -gt 0)) {
 }
 if ($LASTEXITCODE -ne 0) { throw "The installer did not compile (see the errors above)." }
 Write-Host "built: $exe"
+
