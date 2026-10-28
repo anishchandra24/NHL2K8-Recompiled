@@ -20,6 +20,7 @@ $SdkInstallDir = Join-Path $SdkDir "out\install\win-amd64"
 $LogDir    = Join-Path $LocalDir "logs"
 $StampFile = Join-Path $LocalDir "sdk-build.stamp"
 $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
+$PatchFile2 = Join-Path $RepoRoot "patches\codegen_vector_alias.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
@@ -89,7 +90,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.5.1: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.6: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -236,10 +237,28 @@ try {
         }
     }
 
+    # ---- Vector pack patch (fixes pack instructions whose destination is also a source) ----
+    $vecTarget = Join-Path $SdkDir "src\codegen\builders\vector.cpp"
+    if (Select-String -Path $vecTarget -SimpleMatch "uint16_t pk[4]" -Quiet) {
+        Ok "Vector pack patch already applied"
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile2
+        if ($LASTEXITCODE -ne 0) {
+            Warn "Vector pack patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile2
+            if ($LASTEXITCODE -ne 0) { throw "The vector pack patch could not be applied" }
+        }
+        if (Select-String -Path $vecTarget -SimpleMatch "uint16_t pk[4]" -Quiet) {
+            Ok "Vector pack patch applied"
+        } else {
+            throw "The vector pack patch reported success but the new code is not in the file"
+        }
+    }
+
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {
@@ -261,6 +280,12 @@ try {
         }
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($runtimeDll))
         if ($text.Contains("cannot find a song file")) { Ok "the built runtime contains the music code" } else { Warn "could not find the music code inside the built runtime - check this" }
+        # The recompiler keeps old generated code when only the recompiler changed, so regenerate it.
+        $genDir = Join-Path $RepoRoot "generated\default"
+        if (Test-Path -LiteralPath (Join-Path $genDir "sources.cmake")) {
+            Remove-Item -LiteralPath $genDir -Recurse -Force
+            Ok "old generated code removed; it will be regenerated with the rebuilt recompiler"
+        }
         Set-Content -Path $StampFile -Value $stamp -Encoding ascii
     }
 } catch {

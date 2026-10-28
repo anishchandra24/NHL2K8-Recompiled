@@ -6,7 +6,7 @@ This project builds on the software below. Their licenses apply to their code.
 
 https://github.com/rexglue/rexglue-sdk
 
-patches/xmp_music.patch modifies src/kernel/xam/apps/xmp_app.cpp from the ReXGlue SDK, and the build uses the SDK at version 0.10.0. The SDK's license text, copied unchanged:
+patches/xmp_music.patch modifies src/kernel/xam/apps/xmp_app.cpp and patches/codegen_vector_alias.patch modifies src/codegen/builders/vector.cpp from the ReXGlue SDK, and the build uses the SDK at version 0.10.0. The SDK's license text, copied unchanged:
 
     Copyright (c) 2026, Tom Clay <tomc@tctechstuff.com>
     
@@ -47,3 +47,4 @@ patches/xmp_music.patch modifies src/kernel/xam/apps/xmp_app.cpp from the ReXGlu
 https://github.com/xenia-project/xenia
 
 Parts of the ReXGlue SDK are derived from Xenia. The SDK license text above carries its copyright notice.
+
