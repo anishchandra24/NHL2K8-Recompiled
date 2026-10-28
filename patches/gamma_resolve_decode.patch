@@ -1,0 +1,30 @@
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index dd321a5..06073a7 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -46,6 +46,9 @@ REXCVAR_DEFINE_STRING(render_target_path_d3d12, "", "GPU/D3D12",
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
+ REXCVAR_DEFINE_BOOL(native_stencil_value_output, true, "GPU", "Enable native stencil value output");
++REXCVAR_DEFINE_BOOL(gamma_resolve_decode, true, "GPU/D3D12",
++                    "Resolves of 8_8_8_8_GAMMA render targets copy linear values, like real "
++                    "hardware, instead of the PWL gamma encoded bytes (fixes pale, overbright output)");
+ 
+ namespace rex::graphics::d3d12 {
+ 
+@@ -5364,8 +5367,13 @@ ID3D12PipelineState* D3D12RenderTargetCache::GetOrCreateDumpPipeline(DumpPipelin
+         // 8_8_8_8_GAMMA is represented by linear stored in
+         // R16G16B16A16_UNORM.
+         assert_false(source_is_uint);
+-        for (uint32_t i = 0; i < 3; ++i) {
+-          DxbcShaderTranslator::PreSaturatedLinearToPWLGamma(a, 1, i, 1, i, 0, 0, 0, 1);
++        // The EDRAM buffer is only read by resolves here, and a resolve of a
++        // gamma render target gives linear values on real hardware, so store
++        // linear bytes unless the old behaviour is requested.
++        if (!REXCVAR_GET(gamma_resolve_decode)) {
++          for (uint32_t i = 0; i < 3; ++i) {
++            DxbcShaderTranslator::PreSaturatedLinearToPWLGamma(a, 1, i, 1, i, 0, 0, 0, 1);
++          }
+         }
+         a.OpMAd(dxbc::Dest::R(1), dxbc::Src::R(1), dxbc::Src::LF(255.0f), dxbc::Src::LF(0.5f));
+         a.OpFToU(dxbc::Dest::R(1), dxbc::Src::R(1));

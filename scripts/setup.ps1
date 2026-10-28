@@ -21,6 +21,7 @@ $LogDir    = Join-Path $LocalDir "logs"
 $StampFile = Join-Path $LocalDir "sdk-build.stamp"
 $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
 $PatchFile2 = Join-Path $RepoRoot "patches\codegen_vector_alias.patch"
+$PatchFile3 = Join-Path $RepoRoot "patches\gamma_resolve_decode.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
@@ -90,7 +91,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.6: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.7: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -255,10 +256,28 @@ try {
         }
     }
 
+    # ---- Color fix patch (gamma render targets resolve to normal colors, like the real console) ----
+    $gammaTarget = Join-Path $SdkDir "src\graphics\d3d12\render_target_cache.cpp"
+    if (Select-String -Path $gammaTarget -SimpleMatch "gamma_resolve_decode" -Quiet) {
+        Ok "Color fix patch already applied"
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile3
+        if ($LASTEXITCODE -ne 0) {
+            Warn "Color fix patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile3
+            if ($LASTEXITCODE -ne 0) { throw "The color fix patch could not be applied" }
+        }
+        if (Select-String -Path $gammaTarget -SimpleMatch "gamma_resolve_decode" -Quiet) {
+            Ok "Color fix patch applied"
+        } else {
+            throw "The color fix patch reported success but the new code is not in the file"
+        }
+    }
+
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {
