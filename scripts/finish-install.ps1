@@ -14,7 +14,45 @@ if (-not $failed) {
         $resIco       = Join-Path $ResDir "nhl2k8.ico"
         $iconStamp    = Join-Path $LocalDir "icon-embedded.stamp"
 
-        # 1. Get the game's own icon. The game writes nhl2k8.ico next to the exe the first time it runs.
+        # 1. Get the game's own icon. The SDK's rexglue tool reads it straight from default.xex,
+        #    so the game does not have to be started for this.
+        if ((-not $SkipIcon) -and (-not (Test-Path $resIco))) {
+            $png = $null
+            try {
+                $iconTool = Join-Path $SdkInstallDir "bin\rexglue.exe"
+                $iconXex  = (Get-Item -LiteralPath (Join-Path $AssetsDir "default.xex")).FullName
+                $iconWork = Join-Path $LocalDir "icon-extract"
+                New-Item -ItemType Directory -Force $iconWork | Out-Null
+                New-Item -ItemType Directory -Force $LogDir | Out-Null
+                $iconArgs = "init --project-name icon --xex-path `"$iconXex`" achievements `"$iconXex`" `"$iconWork`""
+                $ip = Start-Process -FilePath $iconTool -ArgumentList $iconArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $LogDir "icon-extract.out.log") -RedirectStandardError (Join-Path $LogDir "icon-extract.err.log")
+                $cand = Join-Path $iconWork "icons\title.png"
+                if (($ip.ExitCode -eq 0) -and (Test-Path $cand)) { $png = $cand }
+            } catch { $png = $null }
+            if ($png) {
+                $pb = [IO.File]::ReadAllBytes($png)
+                if (($pb.Length -gt 33) -and ($pb[1] -eq 0x50) -and ($pb[2] -eq 0x4E) -and ($pb[3] -eq 0x47)) {
+                    $pw = ([int]$pb[16] -shl 24) -bor ([int]$pb[17] -shl 16) -bor ([int]$pb[18] -shl 8) -bor [int]$pb[19]
+                    $ph = ([int]$pb[20] -shl 24) -bor ([int]$pb[21] -shl 16) -bor ([int]$pb[22] -shl 8) -bor [int]$pb[23]
+                    $ms = New-Object IO.MemoryStream
+                    $bw = New-Object IO.BinaryWriter($ms)
+                    $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]1)
+                    if ($pw -ge 256) { $bw.Write([byte]0) } else { $bw.Write([byte]$pw) }
+                    if ($ph -ge 256) { $bw.Write([byte]0) } else { $bw.Write([byte]$ph) }
+                    $bw.Write([byte]0); $bw.Write([byte]0)
+                    $bw.Write([uint16]1); $bw.Write([uint16]32)
+                    $bw.Write([uint32]$pb.Length); $bw.Write([uint32]22)
+                    $bw.Write($pb); $bw.Flush()
+                    New-Item -ItemType Directory -Force $ResDir | Out-Null
+                    [IO.File]::WriteAllBytes($resIco, $ms.ToArray())
+                    Copy-Item $resIco $distIco -Force
+                    Ok "saved the game's icon to res\nhl2k8.ico (read from default.xex, the game was not started)"
+                }
+            }
+            if (-not (Test-Path $resIco)) { Warn "Could not read the icon from default.xex; falling back to starting the game once" }
+        }
+
+        # 1b. Fallback: the game writes nhl2k8.ico next to the exe the first time it runs.
         if ((-not $SkipIcon) -and (-not (Test-Path $resIco))) {
             if (-not (Test-Path $distIco)) {
                 Write-Host "The game will open for a few seconds to make its icon, then close by itself."

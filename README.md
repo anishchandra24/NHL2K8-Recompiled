@@ -85,7 +85,7 @@ Notes:
 - If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not need network access to run (online features are not supported), and it started and ran with the prompt cancelled.
 - If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
 - Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
-- The game's icon is made from your own copy of the game during setup. For that, the game window opens for a few seconds and closes by itself. This is expected. The icon is not part of this repository.
+- The game's icon is read from your own copy of the game (your `default.xex`) during setup. The icon is not part of this repository.
 - Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder by hand, open a command prompt in it and run `rmdir assets`, so your game files are not touched. The uninstaller does this for you.
 - Saves, settings and achievements are stored in `Documents\nhl2k8`, not in the project folder. Back this folder up before trying new builds.
 

@@ -91,7 +91,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.7: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.7.1: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
