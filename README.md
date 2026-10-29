@@ -24,9 +24,10 @@ Taken from the running port.
 
 Works:
 - Boots, menus, quick games, franchise mode, tournaments, saving and loading
-- Keyboard and controller input
+- Keyboard and controller input, including several controllers at once for local multiplayer
 - Achievements
 - Soundtrack through the game's built-in music player (2K Beats)
+- Custom soundtracks through the game's User Playlists screen (see "Custom soundtracks" below)
 - The game's own icon on the window, taskbar and shortcut
 
 Known issues:
@@ -35,7 +36,6 @@ Known issues:
 - The F4 settings screen's "Save to config" button writes a config file the game can't read (a ReXGlue SDK bug). Edit settings by hand with forward slashes in paths.
 - The first time you reach a new screen (team select, starting a game, the faceoff, after a goal), the game can stutter for a few seconds. This looks like graphics shaders being prepared and saved, and it did not repeat on later visits.
 - Online features do not work.
-- Custom soundtracks have not been tested.
 
 ## Tested on
 
@@ -77,7 +77,7 @@ If you prefer to do it by hand, or the setup program does not work for you:
         git clone https://github.com/anishchandra24/NHL2K8-Recompiled.git C:\NHL2K8
 
 3. Open the `C:\NHL2K8` folder and double-click `setup.bat`. When it asks, type the path to your extracted game folder (the folder that contains `default.xex`) and press Enter.
-4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies its three SDK patches (music playback, a recompiler fix and a color fix), builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on a fast 8-core laptop and about 21 minutes on a slower 4-core desktop, both including the downloads. Slower PCs or connections will take longer.
+4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies its four SDK patches (music playback, a recompiler fix, a color fix and custom soundtracks), builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on a fast 8-core laptop and about 21 minutes on a slower 4-core desktop, both including the downloads. Slower PCs or connections will take longer.
 5. Start the game from the "NHL 2K8 Recompiled" shortcut on your desktop, or run `dist\Launch NHL 2K8.bat`.
 
 Notes:
@@ -88,6 +88,21 @@ Notes:
 - The game's icon is read from your own copy of the game (your `default.xex`) during setup. The icon is not part of this repository.
 - Setup creates a folder named `assets` inside the project. It is a link to your game folder, not a copy. Before deleting the project folder by hand, open a command prompt in it and run `rmdir assets`, so your game files are not touched. The uninstaller does this for you.
 - Saves, settings and achievements are stored in `Documents\nhl2k8`, not in the project folder. Back this folder up before trying new builds.
+
+### Updating
+
+Run `NHL2K8-Recompiled-Setup.exe` again and choose the same install folder: it downloads the latest version of the project and rebuilds the game. With a manual install, run `git pull` in the project folder, then `setup.bat`. Your saves are not touched. The first update after v1.0 rebuilds more than usual, so allow about as long as the first install.
+
+## Custom soundtracks
+
+Like on the Xbox 360, the game can play your own music instead of its soundtrack.
+
+1. Open `Documents\nhl2k8\playlists`. The game creates this folder the first time you open its User Playlists screen, or you can create it yourself.
+2. Make one folder inside it for each playlist. The folder's name is the playlist's name in the game (up to 39 characters are shown).
+3. Put your songs in that folder: MP3, WMA, WAV, M4A (AAC) or FLAC. Folders inside a playlist folder are not read.
+4. In the game, open the User Playlists screen and tick the playlist you want.
+
+Song titles, artists and albums are read from the files' tags. A song without tags is shown by its file name. A file that cannot be played is skipped. Playlists are read again each time you open the screen, so you can add songs while the game is running. Unlike on the Xbox 360, your music stops when you quit the game. The playlists folder is inside `Documents\nhl2k8`, so when the uninstaller asks about deleting your saves, it means this folder too.
 
 ## Reporting problems and test results
 

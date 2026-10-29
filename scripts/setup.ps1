@@ -1,4 +1,4 @@
-# NHL 2K8 Recompiled - setup script (version 0.3.1: checks, SDK download, music patch, SDK build)
+# NHL 2K8 Recompiled - setup script (version 0.8: checks, SDK download, SDK patches, SDK build)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -GameDataRoot "D:\path\to\extracted\game"
 param(
     [string]$GameDataRoot = "",
@@ -19,9 +19,11 @@ $SdkBuildDir   = Join-Path $SdkDir "out\build\win-amd64"
 $SdkInstallDir = Join-Path $SdkDir "out\install\win-amd64"
 $LogDir    = Join-Path $LocalDir "logs"
 $StampFile = Join-Path $LocalDir "sdk-build.stamp"
+$CodegenStampFile = Join-Path $LocalDir "sdk-codegen.stamp"
 $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
 $PatchFile2 = Join-Path $RepoRoot "patches\codegen_vector_alias.patch"
 $PatchFile3 = Join-Path $RepoRoot "patches\gamma_resolve_decode.patch"
+$PatchFile4 = Join-Path $RepoRoot "patches\user_playlists.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
@@ -91,7 +93,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.7.1: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.8: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -274,10 +276,28 @@ try {
         }
     }
 
+    # ---- User playlists patch (custom soundtracks from folders in Documents\nhl2k8\playlists) ----
+    $plTarget = Join-Path $SdkDir "src\kernel\xam\xam_enum.cpp"
+    if (Select-String -Path $plTarget -SimpleMatch "user_playlist_item_size" -Quiet) {
+        Ok "User playlists patch already applied"
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile4
+        if ($LASTEXITCODE -ne 0) {
+            Warn "User playlists patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile4
+            if ($LASTEXITCODE -ne 0) { throw "The user playlists patch could not be applied" }
+        }
+        if (Select-String -Path $plTarget -SimpleMatch "user_playlist_item_size" -Quiet) {
+            Ok "User playlists patch applied"
+        } else {
+            throw "The user playlists patch reported success but the new code is not in the file"
+        }
+    }
+
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {
@@ -300,11 +320,17 @@ try {
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($runtimeDll))
         if ($text.Contains("cannot find a song file")) { Ok "the built runtime contains the music code" } else { Warn "could not find the music code inside the built runtime - check this" }
         # The recompiler keeps old generated code when only the recompiler changed, so regenerate it.
+        # Only needed when the recompiler itself changed (SDK version or the vector pack patch).
+        $codegenStamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash
+        $haveCodegenStamp = (Test-Path $CodegenStampFile) -and ((Get-Content $CodegenStampFile -Raw).Trim() -eq $codegenStamp)
         $genDir = Join-Path $RepoRoot "generated\default"
-        if (Test-Path -LiteralPath (Join-Path $genDir "sources.cmake")) {
+        if ($haveCodegenStamp) {
+            Ok "the recompiler did not change, so the generated code is kept"
+        } elseif (Test-Path -LiteralPath (Join-Path $genDir "sources.cmake")) {
             Remove-Item -LiteralPath $genDir -Recurse -Force
             Ok "old generated code removed; it will be regenerated with the rebuilt recompiler"
         }
+        Set-Content -Path $CodegenStampFile -Value $codegenStamp -Encoding ascii
         Set-Content -Path $StampFile -Value $stamp -Encoding ascii
     }
 } catch {
