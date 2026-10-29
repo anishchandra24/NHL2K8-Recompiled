@@ -8,6 +8,16 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
+// Version details shown in the file's Properties window.
+[assembly: AssemblyTitle("NHL 2K8 Recompiled Setup")]
+[assembly: AssemblyDescription("Builds NHL 2K8 Recompiled from source with your own copy of the game")]
+[assembly: AssemblyCompany("anishchandra24")]
+[assembly: AssemblyProduct("NHL 2K8 Recompiled")]
+[assembly: AssemblyCopyright("GPL-3.0 - https://github.com/anishchandra24/NHL2K8-Recompiled")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyInformationalVersion("1.5")]
+
 namespace Nhl2k8Setup
 {
     static class Program
@@ -24,7 +34,7 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.4";
+        const string WizardVersion = "1.5";
         const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -526,7 +536,7 @@ namespace Nhl2k8Setup
             Log("");
             Log("Running the project's setup script...");
             SetStatus("Building the game (this is the long part)...");
-            string args = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -GameDataRoot \"" + game + "\"";
+            string args = "-NoProfile -ExecutionPolicy RemoteSigned -File \"" + script + "\" -GameDataRoot \"" + game + "\"";
             int code = RunProcess("powershell.exe", args, dir, Path.GetDirectoryName(git), false);
             if (code != 0)
                 throw new Exception("Setup did not finish (exit code " + code + "). Read the messages above. You can run this installer again; finished steps are skipped.");

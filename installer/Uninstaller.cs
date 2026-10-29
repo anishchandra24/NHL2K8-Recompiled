@@ -96,7 +96,9 @@ namespace Nhl2k8Setup
                 }
                 if (!fromCopy && IsInside(Application.ExecutablePath, dir))
                 {
-                    string tmp = Path.Combine(Path.GetTempPath(), "NHL2K8-uninstall-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
+                    // The uninstaller cannot delete the folder it runs from, so it continues from a copy in
+                    // the temporary folder. That copy is left there for Windows' cleanup to remove.
+                    string tmp = Path.Combine(Path.GetTempPath(), "NHL2K8-Recompiled-Uninstall.exe");
                     File.Copy(Application.ExecutablePath, tmp, true);
                     ProcessStartInfo relaunch = new ProcessStartInfo(tmp, "/uninstall-copy \"" + dir + "\"");
                     relaunch.UseShellExecute = false;
@@ -176,18 +178,6 @@ namespace Nhl2k8Setup
                 else if (Directory.Exists(saves)) done += "\r\n\r\nYour saves and settings were kept.";
                 done += "\r\n\r\nYour game folder, Git and Visual Studio were not touched.";
                 MessageBox.Show(owner, done, Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                if (fromCopy)
-                {
-                    try
-                    {
-                        ProcessStartInfo del = new ProcessStartInfo("cmd.exe", "/c ping 127.0.0.1 -n 4 >nul & del /f /q \"" + Application.ExecutablePath + "\"");
-                        del.UseShellExecute = false;
-                        del.CreateNoWindow = true;
-                        Process.Start(del);
-                    }
-                    catch (Exception) { }
-                }
                 return 1;
             }
             catch (Exception ex)

@@ -63,6 +63,8 @@ Tested on two PCs (see "Tested on" above) and by an outside tester. Reports from
 4. Wait. If Git or Visual Studio 2022 Community are missing, the program installs them with Windows' package installer (Windows asks for permission), then downloads the project and builds the game. Allow 15 to 30 minutes, plus the downloads and any Visual Studio install.
 5. When it says it is done, click "Play", or use the "NHL 2K8 Recompiled" shortcut on your desktop.
 
+If your antivirus flags the setup program: some antivirus programs (for example Microsoft Defender, as "Trojan:Win32/Wacatac.C!ml") have flagged `NHL2K8-Recompiled-Setup.exe`. This is a false positive. The "!ml" means a machine-learning guess, not a known virus: the program is new, is not code-signed, and does what an installer does, starting PowerShell, Git and Windows' package installer to download the tools and build the game. Its complete source code is in the `installer` folder of this repository, and the release notes give the file's SHA-256 fingerprint so you can check that your download is the published file. The detections are being reported to the antivirus makers as false positives. If you would rather not run it, use the manual install below, which does not use the setup program at all.
+
 To remove it, use Settings, Apps, "NHL 2K8 Recompiled" (or the "Uninstall" button in the setup program). Uninstalling never touches your game files, and it asks before deleting your saves.
 
 Automatic installation of Visual Studio has not been tested on a PC that does not have it. If you try it, please open an issue and tell me how it went, whether it worked or not. If it fails, install the tools by hand (see "What you need") and run the setup program again.
