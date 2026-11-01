@@ -126,7 +126,17 @@ if (-not $failed) {
                     "`"Network Command Shell`" (netsh, a part of Windows) to add one firewall rule named `"$fwName`" for nhl2k8.exe.`n`n" +
                     "Click Cancel to skip this. The game works either way, but without the rule online play may not find other players. " +
                     "You can add it later by running setup again."
-                $fwAnswer = [System.Windows.Forms.MessageBox]::Show($fwMsg, "NHL 2K8 Recompiled setup", "OKCancel", "Question", "Button1", "DefaultDesktopOnly")
+                # An invisible always-on-top owner keeps the question in front until it is answered.
+                $fwOwner = New-Object System.Windows.Forms.Form
+                $fwOwner.TopMost = $true
+                $fwOwner.ShowInTaskbar = $false
+                $fwOwner.StartPosition = "CenterScreen"
+                $fwOwner.Size = New-Object System.Drawing.Size(1, 1)
+                $fwOwner.Opacity = 0
+                $fwOwner.Show()
+                $fwOwner.Activate()
+                $fwAnswer = [System.Windows.Forms.MessageBox]::Show($fwOwner, $fwMsg, "NHL 2K8 Recompiled setup", "OKCancel", "Question")
+                $fwOwner.Close()
                 if ($fwAnswer -ne "OK") {
                     Warn "Skipped the firewall rule for online play. Online play may not find other players; see Online play in the README."
                 } else {
