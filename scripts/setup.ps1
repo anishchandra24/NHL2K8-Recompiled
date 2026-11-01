@@ -1,4 +1,4 @@
-# NHL 2K8 Recompiled - setup script (version 0.9: checks, SDK download, SDK patches, SDK build)
+# NHL 2K8 Recompiled - setup script (version 0.10: checks, SDK download, SDK patches, SDK build)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -GameDataRoot "D:\path\to\extracted\game"
 param(
     [string]$GameDataRoot = "",
@@ -7,7 +7,8 @@ param(
     [switch]$SkipIcon,
     [switch]$NoShortcut,
     [switch]$NoFirewall,
-    [string]$Gamertag = ""
+    [string]$Gamertag = "",
+    [ValidateSet("", "on", "off")][string]$LegendNames = ""
 )
 
 $ExpectedSha256 = "BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225"
@@ -43,6 +44,17 @@ if ($Gamertag) {
 }
 $ExtraGameArgs = ""
 if ($Gamertag) { $ExtraGameArgs = " --net_gamertag=`"$Gamertag`"" }
+
+# Real names for the classic teams' unnamed players ("1. Center"): on unless turned off.
+# Remembered in .local\legend-names.txt for later runs.
+$LegendNamesFile = Join-Path $LocalDir "legend-names.txt"
+if ($LegendNames) {
+    New-Item -ItemType Directory -Force $LocalDir | Out-Null
+    Set-Content -Path $LegendNamesFile -Value $LegendNames -Encoding ascii
+} elseif (Test-Path $LegendNamesFile) {
+    $LegendNames = (Get-Content $LegendNamesFile -Raw).Trim()
+}
+if ($LegendNames -eq "off") { $ExtraGameArgs += " --legend_names=false" }
 
 function Ok($msg)   { Write-Host "[ ok ] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }

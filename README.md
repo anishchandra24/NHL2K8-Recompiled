@@ -132,6 +132,12 @@ What works: Quick Match and Custom Match (player matches), tested on two PCs on 
 
 The game renders at 720p by default. To render at a higher resolution, close the game, right-click the "NHL 2K8 Recompiled" shortcut, choose Properties, and add ` --resolution_scale=2` to the end of the Target box (2 gives 1440p, 3 gives 4K). This needs a stronger graphics card. Changing the display resolution in the F4 settings screen only stretches the 720p picture.
 
+## Legend player names
+
+The classic, international and all-decade teams' unnamed players (such as "1. Center") get their real names while the game runs. The names come from the NHL 2K8 Legends Roster researched by Moto Guzzi Dude on the Operation Sports forums ([NHL2K8 XBOX 360 Roster with All Teams named PLUS 5 more Historical NHL Teams](https://forums.operationsports.com/forums/forum/hockey/other-hockey-games/nhl-2k/nhl-2k-rosters/923875-nhl2k8-xbox-360-roster-with-all-teams-named-plus-5-more-historical-nhl-teams)). Thank you! Only the player names are used; his roster file is not included. Moto Guzzi Dude, if you'd rather I didn't use your list, open an issue and I'll take it out.
+
+You can turn the names off in setup, or start the game with `--legend_names=false`.
+
 ## Reporting problems and test results
 
 Found a bug, or hit a problem during setup? Please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose). Test reports are just as welcome as bug reports, including "it worked": this project has only been tested on a few PCs, so every report helps. Useful things to include are your Windows version, your CPU, graphics card and RAM, whether setup finished, and the last lines of the logs. The setup program's log is `%TEMP%\NHL2K8-Setup.log`, and the setup steps log to `.local\logs` inside the install folder.
@@ -159,6 +165,7 @@ This project was developed in a chat conversation with Claude, an AI assistant b
 - anishchandra24: project, fixes and testing
 - The ReXGlue SDK by Tom Clay and contributors
 - The Xenia project (Ben Vanik and contributors), whose work the SDK's graphics code builds on
+- Moto Guzzi Dude (Operation Sports forums): researched names for the legend teams' players (see "Legend player names")
 - Claude (Anthropic): AI assistant used to write code, patches and diagnostics (see "How this was made")
 
 ## License

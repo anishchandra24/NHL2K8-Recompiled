@@ -39,7 +39,7 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.6";
+        const string WizardVersion = "1.7";
         public static string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -49,6 +49,7 @@ namespace Nhl2k8Setup
         TextBox gameBox;
         TextBox installBox;
         TextBox gamertagBox;
+        CheckBox legendBox;
         TextBox logBox;
         Button gameBrowse;
         Button installBrowse;
@@ -109,6 +110,12 @@ namespace Nhl2k8Setup
             gamertagBox.MaxLength = 15;
             gamertagBox.SetBounds(12, 198 + b, 300, 24);
             Controls.Add(gamertagBox);
+            legendBox = new CheckBox();
+            legendBox.Text = "Real names for the classic teams' unnamed players (\"1. Center\")";
+            legendBox.Checked = true;
+            legendBox.SetBounds(330, 198 + b, 378, 24);
+            legendBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(legendBox);
 
             startButton = new Button();
             startButton.Text = "Install";
@@ -156,6 +163,7 @@ namespace Nhl2k8Setup
             {
                 installedDir = "C:\\NHL2K8";
                 gamertagBox.Text = ReadGamertag("C:\\NHL2K8");
+                legendBox.Checked = ReadLegendNames("C:\\NHL2K8");
                 playButton.Enabled = true;
                 statusLabel.Text = "Already installed in C:\\NHL2K8.";
             }
@@ -166,6 +174,7 @@ namespace Nhl2k8Setup
                 installedDir = registered;
                 installBox.Text = registered;
                 gamertagBox.Text = ReadGamertag(registered);
+                legendBox.Checked = ReadLegendNames(registered);
                 playButton.Enabled = true;
                 statusLabel.Text = "Installed in " + registered + ".";
             }
@@ -193,6 +202,18 @@ namespace Nhl2k8Setup
             }
             catch (Exception) { }
             return "";
+        }
+
+        // On unless .local\legend-names.txt says "off".
+        static bool ReadLegendNames(string dir)
+        {
+            try
+            {
+                string f = Path.Combine(dir, ".local\\legend-names.txt");
+                if (File.Exists(f)) return File.ReadAllText(f).Trim() != "off";
+            }
+            catch (Exception) { }
+            return true;
         }
 
         static Image LoadBanner()
@@ -359,14 +380,16 @@ namespace Nhl2k8Setup
             gameBox.ReadOnly = true;
             installBox.ReadOnly = true;
             gamertagBox.ReadOnly = true;
+            legendBox.Enabled = false;
             string tag = CleanGamertag(gamertagBox.Text);
             gamertagBox.Text = tag;
-            Thread t = new Thread(delegate() { Work(game, dir, tag); });
+            bool legend = legendBox.Checked;
+            Thread t = new Thread(delegate() { Work(game, dir, tag, legend); });
             t.IsBackground = true;
             t.Start();
         }
 
-        void Work(string game, string dir, string tag)
+        void Work(string game, string dir, string tag, bool legend)
         {
             bool ok = false;
             try
@@ -375,7 +398,7 @@ namespace Nhl2k8Setup
                 string git = EnsureGit();
                 EnsureVisualStudio();
                 CloneOrPull(git, dir);
-                RunSetup(git, dir, game, tag);
+                RunSetup(git, dir, game, tag, legend);
                 ok = File.Exists(Path.Combine(dir, "dist\\nhl2k8.exe"));
                 if (!ok) throw new Exception("Setup finished but dist\\nhl2k8.exe was not created.");
                 installedDir = dir;
@@ -407,6 +430,7 @@ namespace Nhl2k8Setup
                     gameBox.ReadOnly = false;
                     installBox.ReadOnly = false;
                     gamertagBox.ReadOnly = false;
+                    legendBox.Enabled = true;
                     playButton.Enabled = ok || (installedDir != null);
                 }));
             }
@@ -573,7 +597,7 @@ namespace Nhl2k8Setup
             }
         }
 
-        void RunSetup(string git, string dir, string game, string tag)
+        void RunSetup(string git, string dir, string game, string tag, bool legend)
         {
             string script = Path.Combine(dir, "scripts\\setup.ps1");
             if (!File.Exists(script)) throw new Exception("The project was downloaded but scripts\\setup.ps1 is missing.");
@@ -582,6 +606,7 @@ namespace Nhl2k8Setup
             SetStatus("Building the game (this is the long part)...");
             string args = "-NoProfile -ExecutionPolicy RemoteSigned -File \"" + script + "\" -GameDataRoot \"" + game + "\"";
             if (tag.Length > 0) args += " -Gamertag \"" + tag + "\"";
+            args += legend ? " -LegendNames on" : " -LegendNames off";
             int code = RunProcess("powershell.exe", args, dir, Path.GetDirectoryName(git), false);
             if (code != 0)
                 throw new Exception("Setup did not finish (exit code " + code + "). Read the messages above. You can run this installer again; finished steps are skipped.");
@@ -632,6 +657,7 @@ namespace Nhl2k8Setup
             if (tag.Length == 0) tag = ReadGamertag(dir);
             string gameArgs = "--game_data_root=\"" + Path.Combine(dir, "assets") + "\" --gpu_plugin=xenos --mnk_mode=true --log_level=error";
             if (tag.Length > 0) gameArgs += " --net_gamertag=\"" + tag + "\"";
+            if (!legendBox.Checked) gameArgs += " --legend_names=false";
             ProcessStartInfo psi = new ProcessStartInfo(exe, gameArgs);
             psi.WorkingDirectory = dist;
             psi.UseShellExecute = false;
