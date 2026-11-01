@@ -119,19 +119,29 @@ if (-not $failed) {
             if ($fwDone) {
                 Ok "Windows Firewall already lets the game receive online play traffic"
             } else {
-                Write-Host "For online play, Windows will now ask for permission to let the game through Windows Firewall."
-                Write-Host "Click Yes to allow it, or No to skip it (the game works either way; online play may not find other players)."
-                $fwArgs = '/c netsh advfirewall firewall delete rule name="' + $fwName + '" >nul 2>&1 & netsh advfirewall firewall add rule name="' + $fwName + '" dir=in action=allow program="' + $exe + '" enable=yes profile=any'
-                try {
-                    $fp = Start-Process -FilePath "cmd.exe" -ArgumentList $fwArgs -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-                    if ($fp.ExitCode -eq 0) {
-                        Set-Content -Path $fwStamp -Value $exe -Encoding ascii
-                        Ok "Windows Firewall now lets the game receive online play traffic"
-                    } else {
-                        Warn "The firewall rule was not added (exit code $($fp.ExitCode)). Online play may not find other players; see Online play in the README."
+                # Explain first in a window people can read, then ask Windows for permission.
+                Add-Type -AssemblyName System.Windows.Forms
+                $fwMsg = "Online play: let the game through Windows Firewall?`n`n" +
+                    "Other players' games need to be able to reach yours. If you click OK, Windows will ask for permission for " +
+                    "`"Network Command Shell`" (netsh, a part of Windows) to add one firewall rule named `"$fwName`" for nhl2k8.exe.`n`n" +
+                    "Click Cancel to skip this. The game works either way, but without the rule online play may not find other players. " +
+                    "You can add it later by running setup again."
+                $fwAnswer = [System.Windows.Forms.MessageBox]::Show($fwMsg, "NHL 2K8 Recompiled setup", "OKCancel", "Question", "Button1", "DefaultDesktopOnly")
+                if ($fwAnswer -ne "OK") {
+                    Warn "Skipped the firewall rule for online play. Online play may not find other players; see Online play in the README."
+                } else {
+                    $fwArgs = 'advfirewall firewall add rule name="' + $fwName + '" dir=in action=allow program="' + $exe + '" enable=yes profile=any'
+                    try {
+                        $fp = Start-Process -FilePath "netsh.exe" -ArgumentList $fwArgs -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                        if ($fp.ExitCode -eq 0) {
+                            Set-Content -Path $fwStamp -Value $exe -Encoding ascii
+                            Ok "Windows Firewall now lets the game receive online play traffic"
+                        } else {
+                            Warn "The firewall rule was not added (exit code $($fp.ExitCode)). Online play may not find other players; see Online play in the README."
+                        }
+                    } catch {
+                        Warn "Skipped the firewall rule (permission was not given). Online play may not find other players; see Online play in the README."
                     }
-                } catch {
-                    Warn "Skipped the firewall rule (permission was not given). Online play may not find other players; see Online play in the README."
                 }
             }
         }
