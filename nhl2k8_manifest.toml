@@ -74,6 +74,7 @@ includes = []
 0x8268C9D8 = { size = 0x28 }
 0x8269B0C0 = { size = 0x10 }
 0x826F6AE0 = { size = 0x10 }
+0x82282680 = { size = 0x20 }
 
 [[entrypoint.switch_tables]]
 address = 0x820DEE54
