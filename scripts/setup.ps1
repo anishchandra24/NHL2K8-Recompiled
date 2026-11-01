@@ -1,11 +1,13 @@
-# NHL 2K8 Recompiled - setup script (version 0.8: checks, SDK download, SDK patches, SDK build)
+# NHL 2K8 Recompiled - setup script (version 0.9: checks, SDK download, SDK patches, SDK build)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -GameDataRoot "D:\path\to\extracted\game"
 param(
     [string]$GameDataRoot = "",
     [switch]$ValidateOnly,
     [switch]$Rebuild,
     [switch]$SkipIcon,
-    [switch]$NoShortcut
+    [switch]$NoShortcut,
+    [switch]$NoFirewall,
+    [string]$Gamertag = ""
 )
 
 $ExpectedSha256 = "BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225"
@@ -24,9 +26,23 @@ $PatchFile = Join-Path $RepoRoot "patches\xmp_music.patch"
 $PatchFile2 = Join-Path $RepoRoot "patches\codegen_vector_alias.patch"
 $PatchFile3 = Join-Path $RepoRoot "patches\gamma_resolve_decode.patch"
 $PatchFile4 = Join-Path $RepoRoot "patches\user_playlists.patch"
+$PatchFile5 = Join-Path $RepoRoot "patches\netplay.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
+
+# Gamertag shown to other players online. Remembered in .local\gamertag.txt for later runs.
+$GamertagFile = Join-Path $LocalDir "gamertag.txt"
+$Gamertag = ($Gamertag -replace '[^A-Za-z0-9 ]', '').Trim()
+if ($Gamertag.Length -gt 15) { $Gamertag = $Gamertag.Substring(0, 15).Trim() }
+if ($Gamertag) {
+    New-Item -ItemType Directory -Force $LocalDir | Out-Null
+    Set-Content -Path $GamertagFile -Value $Gamertag -Encoding ascii
+} elseif (Test-Path $GamertagFile) {
+    $Gamertag = (Get-Content $GamertagFile -Raw).Trim()
+}
+$ExtraGameArgs = ""
+if ($Gamertag) { $ExtraGameArgs = " --net_gamertag=`"$Gamertag`"" }
 
 function Ok($msg)   { Write-Host "[ ok ] $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }
@@ -93,7 +109,7 @@ function Invoke-Step {
 }
 
 Write-Host ""
-Write-Host "NHL 2K8 Recompiled - setup (version 0.8: checks, SDK and game build, icon, shortcut)"
+Write-Host "NHL 2K8 Recompiled - setup (version 0.9: checks, SDK and game build, icon, shortcut)"
 Write-Host ""
 
 # Windows
@@ -294,10 +310,40 @@ try {
         }
     }
 
+    # ---- Online play patch (Xbox Live matches found over your network or a virtual LAN) ----
+    # A copy of the applied version is kept in .local, so a newer version of this patch can
+    # replace it when the project is updated.
+    $npTarget = Join-Path $SdkDir "src\kernel\xam\xam_net.cpp"
+    $npApplied = Join-Path $LocalDir "applied-netplay.patch"
+    if ((Select-String -Path $npTarget -SimpleMatch "online_play" -Quiet) -and (Test-Path $npApplied) -and
+        ((Get-FileHash -LiteralPath $npApplied).Hash -ne (Get-FileHash -LiteralPath $PatchFile5).Hash)) {
+        & git -C $SdkDir apply -R --check --whitespace=nowarn $npApplied 2>$null
+        if ($LASTEXITCODE -eq 0) { & git -C $SdkDir apply -R --whitespace=nowarn $npApplied } else { & git -C $SdkDir apply -R --ignore-whitespace --whitespace=nowarn $npApplied }
+        if ($LASTEXITCODE -ne 0) { throw "The previous version of the online play patch could not be removed from the SDK" }
+        Ok "Removed the previous version of the online play patch"
+    }
+    if (Select-String -Path $npTarget -SimpleMatch "online_play" -Quiet) {
+        Ok "Online play patch already applied"
+        if (-not (Test-Path $npApplied)) { Copy-Item -LiteralPath $PatchFile5 -Destination $npApplied -Force }
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile5
+        if ($LASTEXITCODE -ne 0) {
+            Warn "Online play patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile5
+            if ($LASTEXITCODE -ne 0) { throw "The online play patch could not be applied" }
+        }
+        if (Select-String -Path $npTarget -SimpleMatch "online_play" -Quiet) {
+            Copy-Item -LiteralPath $PatchFile5 -Destination $npApplied -Force
+            Ok "Online play patch applied"
+        } else {
+            throw "The online play patch reported success but the new code is not in the file"
+        }
+    }
+
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile5 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {

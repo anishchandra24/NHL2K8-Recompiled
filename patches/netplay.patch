@@ -1,0 +1,1225 @@
+diff --git a/include/rex/kernel/xam/netplay.h b/include/rex/kernel/xam/netplay.h
+new file mode 100644
+index 0000000..c182e48
+--- /dev/null
++++ b/include/rex/kernel/xam/netplay.h
+@@ -0,0 +1,46 @@
++#pragma once
++// netplay (NHL 2K8 Recompiled patch): Xbox Live sessions found over the local network. See xam_net.cpp.
++
++#include <cstdint>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace rex {
++namespace kernel {
++namespace xam {
++namespace netplay {
++
++struct Session {
++  uint8_t xnkid[8] = {};
++  uint8_t xnaddr[36] = {};
++  uint8_t xnkey[16] = {};
++  uint32_t open_pub = 0, open_priv = 0, filled_pub = 0, filled_priv = 0;
++  std::vector<std::pair<uint32_t, uint32_t>> contexts;
++  std::vector<uint8_t> qos;
++  uint32_t from_ip = 0;
++  uint64_t seen_ms = 0;
++};
++
++bool OnlineEnabled();
++uint32_t LocalIp();
++std::string IpToString(uint32_t ip);
++void MakeXnAddr(uint32_t ip, uint8_t* out);
++uint32_t XnAddrIp(const uint8_t* xnaddr);
++uint64_t OnlineXuid(uint64_t profile_xuid);
++std::string Gamertag(const std::string& profile_name);
++
++void SetContext(uint32_t id, uint32_t value);
++void HostSession(uint8_t* info_out, uint32_t slots_pub, uint32_t slots_priv);
++void JoinedSession(const uint8_t* info);
++void DeleteSession();
++void SessionJoined(bool remote, uint32_t count, bool private_slots);
++void SessionStarted(bool started);
++std::vector<Session> FindSessions(const std::vector<std::pair<uint32_t, uint32_t>>& wanted);
++void SetQosData(const uint8_t* kid, const uint8_t* data, uint32_t len);
++std::vector<uint8_t> GetQosData(const uint8_t* kid);
++
++}  // namespace netplay
++}  // namespace xam
++}  // namespace kernel
++}  // namespace rex
+diff --git a/src/kernel/xam/apps/xgi_app.cpp b/src/kernel/xam/apps/xgi_app.cpp
+index 2b222da..924f21c 100644
+--- a/src/kernel/xam/apps/xgi_app.cpp
++++ b/src/kernel/xam/apps/xgi_app.cpp
+@@ -9,7 +9,11 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <algorithm>
++#include <cstring>
++
+ #include <rex/kernel/xam/apps/xgi_app.h>
++#include <rex/kernel/xam/netplay.h>
+ #include <rex/logging.h>
+ #include <rex/thread.h>
+ 
+@@ -23,6 +27,63 @@ using namespace rex::system;
+ 
+ XgiApp::XgiApp(KernelState* kernel_state) : App(kernel_state, 0xFB) {}
+ 
++// netplay (NHL 2K8 Recompiled patch): fill an XSESSION_SEARCHRESULT_HEADER with games found on the network.
++static void WriteSearchResults(memory::Memory* mem, uint32_t num_results, uint16_t num_ctx,
++                               uint32_t ctx_ptr, uint32_t size_value, uint32_t results_ptr) {
++  std::vector<std::pair<uint32_t, uint32_t>> wanted;
++  if (ctx_ptr) {
++    auto c = mem->TranslateVirtual<uint8_t*>(ctx_ptr);
++    for (uint16_t i = 0; i < num_ctx; ++i) {
++      wanted.emplace_back(memory::load_and_swap<uint32_t>(c + i * 8),
++                          memory::load_and_swap<uint32_t>(c + i * 8 + 4));
++    }
++  }
++  auto found = netplay::FindSessions(wanted);
++  // The size is sometimes passed as a pointer to the size.
++  uint32_t size = size_value;
++  if (size_value >= 0x01000000) {
++    size = memory::load_and_swap<uint32_t>(mem->TranslateVirtual<uint8_t*>(size_value));
++  }
++  REXKRNL_INFO("netplay: game search ({} settings, up to {}) found {} game(s), buffer {:X}/{:X}",
++               num_ctx, num_results, found.size(), size_value, size);
++  if (!results_ptr || size < 8) {
++    return;
++  }
++  constexpr uint32_t kResultSize = 0x5C;
++  size_t n = std::min<size_t>(found.size(), num_results);
++  auto needed = [&](size_t count) {
++    size_t total = 8 + count * kResultSize;
++    for (size_t i = 0; i < count; ++i) total += found[i].contexts.size() * 8;
++    return total;
++  };
++  while (n > 0 && needed(n) > size) --n;
++  auto out = mem->TranslateVirtual<uint8_t*>(results_ptr);
++  memory::store_and_swap<uint32_t>(out + 0, uint32_t(n));
++  memory::store_and_swap<uint32_t>(out + 4, n ? results_ptr + 8 : 0);
++  uint32_t ctx_at = results_ptr + 8 + uint32_t(n) * kResultSize;
++  for (size_t i = 0; i < n; ++i) {
++    const auto& s = found[i];
++    uint8_t* r = out + 8 + i * kResultSize;
++    std::memcpy(r, s.xnkid, 8);
++    std::memcpy(r + 8, s.xnaddr, 36);
++    std::memcpy(r + 44, s.xnkey, 16);
++    memory::store_and_swap<uint32_t>(r + 60, s.open_pub);
++    memory::store_and_swap<uint32_t>(r + 64, s.open_priv);
++    memory::store_and_swap<uint32_t>(r + 68, s.filled_pub);
++    memory::store_and_swap<uint32_t>(r + 72, s.filled_priv);
++    memory::store_and_swap<uint32_t>(r + 76, 0);  // properties
++    memory::store_and_swap<uint32_t>(r + 80, uint32_t(s.contexts.size()));
++    memory::store_and_swap<uint32_t>(r + 84, 0);
++    memory::store_and_swap<uint32_t>(r + 88, s.contexts.empty() ? 0 : ctx_at);
++    for (auto& c : s.contexts) {
++      uint8_t* p = mem->TranslateVirtual<uint8_t*>(ctx_at);
++      memory::store_and_swap<uint32_t>(p, c.first);
++      memory::store_and_swap<uint32_t>(p + 4, c.second);
++      ctx_at += 8;
++    }
++  }
++}
++
+ // http://mb.mirage.org/bugzilla/xliveless/main.c
+ 
+ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+@@ -42,6 +103,9 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       uint32_t context_value = memory::load_and_swap<uint32_t>(buffer + 20);
+       REXKRNL_DEBUG("XGIUserSetContextEx({:08X}, {:08X}, {:08X})", user_index, context_id,
+                     context_value);
++      if (user_index == 0) {
++        netplay::SetContext(context_id, context_value);
++      }
+       return X_E_SUCCESS;
+     }
+     case 0x000B0007: {
+@@ -113,6 +177,20 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+           "{:08X})",
+           session_ptr, flags, num_slots_public, num_slots_private, user_xuid, session_info_ptr,
+           nonce_ptr);
++      REXKRNL_INFO("netplay: XSessionCreate(flags={:08X}, public={}, private={})", flags,
++                   num_slots_public, num_slots_private);
++      if (netplay::OnlineEnabled()) {
++        uint8_t* info = session_info_ptr ? memory_->TranslateVirtual(session_info_ptr) : nullptr;
++        if (flags & 1) {  // XSESSION_CREATE_HOST
++          netplay::HostSession(info, num_slots_public, num_slots_private);
++        } else {
++          netplay::JoinedSession(info);
++        }
++        if (nonce_ptr) {
++          memory::store_and_swap<uint64_t>(memory_->TranslateVirtual(nonce_ptr),
++                                           0x4E484C3200000000ull | netplay::LocalIp());
++        }
++      }
+       return X_E_SUCCESS;
+     }
+     case 0x000B0011: {
+@@ -123,6 +201,7 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       uint64_t session_nonce = memory::load_and_swap<uint64_t>(buffer + 8);
+ 
+       REXKRNL_DEBUG("XGISessionDelete({:08X}, {:08X}, {:016X})", obj_ptr, flags, session_nonce);
++      netplay::DeleteSession();
+ 
+       return X_E_SUCCESS;
+     }
+@@ -138,6 +217,7 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       REXKRNL_DEBUG("{}({:08X}, {}, {}, {:08X}, {:08X})",
+                     is_local ? "XGISessionJoinLocal" : "XGISessionJoinRemote", session_ptr,
+                     user_count, xuid_array_ptr, user_index_array, private_slots_array);
++      netplay::SessionJoined(!is_local, user_count, false);
+       return X_E_SUCCESS;
+     }
+     case 0x000B0014: {
+@@ -148,6 +228,7 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       uint64_t session_nonce = memory::load_and_swap<uint64_t>(buffer + 8);
+ 
+       REXKRNL_DEBUG("XSessionStart({:08X}, {:08X}, {:016X})", obj_ptr, flags, session_nonce);
++      netplay::SessionStarted(true);
+ 
+       return X_STATUS_SUCCESS;
+     }
+@@ -179,6 +260,10 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       REXKRNL_DEBUG("XSessionSearch({}, {}, {}, {}, {}, {:08X}, {:08X}, {}, {:08X})", proc_index,
+                     user_index, num_results, num_props, num_ctx, props_ptr, ctx_ptr,
+                     results_buffer_size, search_results_ptr);
++      if (netplay::OnlineEnabled()) {
++        WriteSearchResults(memory_, num_results, num_ctx, ctx_ptr, results_buffer_size,
++                           search_results_ptr);
++      }
+       return X_E_SUCCESS;
+     }
+     case 0x000B0018: {
+@@ -213,6 +298,10 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       REXKRNL_DEBUG("XSessionSearchEx({}, {}, {}, {}, {}, {:08X}, {:08X}, {}, {:08X}, {})",
+                     proc_index, user_index, num_results, num_props, num_ctx, props_ptr, ctx_ptr,
+                     results_buffer_size, search_results_ptr, num_users);
++      if (netplay::OnlineEnabled()) {
++        WriteSearchResults(memory_, num_results, num_ctx, ctx_ptr, results_buffer_size,
++                           search_results_ptr);
++      }
+ 
+       return X_E_SUCCESS;
+     }
+@@ -270,6 +359,7 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
+       REXKRNL_DEBUG("XSessionArbitrationRegister({:08X}, {:08X}, {:016X}, {:08X}, {:08X}, {:08X})",
+                     obj_ptr, flags, session_nonce, session_duration_sec, results_buffer_size,
+                     results_ptr);
++      REXKRNL_INFO("netplay: ranked-match registration requested (not supported yet)");
+ 
+       return X_E_SUCCESS;
+     }
+diff --git a/src/kernel/xam/xam_enum.cpp b/src/kernel/xam/xam_enum.cpp
+index 6dab90e..7e03d44 100644
+--- a/src/kernel/xam/xam_enum.cpp
++++ b/src/kernel/xam/xam_enum.cpp
+@@ -188,7 +188,20 @@ u32 XamCreateEnumeratorHandle_entry(u32 user_index, u32 app_id, u32 open_message
+       "extra={:X}, items={}, flags={:08X})",
+       user_index, app_id, open_message, close_message, extra_size, item_count, flags);
+   if (open_message != kXmpUserPlaylistEnumMessage) {
+-    return X_ERROR_INVALID_PARAMETER;
++    // Any other list (for example Xbox Live friends or presence): hand the game an empty list
++    // instead of failing, so it never goes on to use a bad handle.
++    auto empty = make_object<XStaticUntypedEnumerator>(REX_KERNEL_STATE(),
++                                                        std::max<uint32_t>(item_count, 1), 1);
++    auto empty_result = empty->Initialize(user_index, app_id, open_message, close_message, flags,
++                                          extra_size, nullptr);
++    if (XFAILED(empty_result)) {
++      return empty_result;
++    }
++    REXKRNL_INFO("XamCreateEnumeratorHandle: empty list for open={:08X}", open_message);
++    if (out_handle.guest_address()) {
++      *out_handle = empty->handle();
++    }
++    return X_ERROR_SUCCESS;
+   }
+ 
+   size_t stride = static_cast<size_t>(
+diff --git a/src/kernel/xam/xam_net.cpp b/src/kernel/xam/xam_net.cpp
+index 58e36a4..091f15f 100644
+--- a/src/kernel/xam/xam_net.cpp
++++ b/src/kernel/xam/xam_net.cpp
+@@ -18,8 +18,19 @@
+ #include <sys/select.h>
+ #endif
+ 
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <map>
++#include <mutex>
++#include <random>
++#include <string>
++#include <thread>
++
+ #include <rex/chrono/clock.h>
++#include <rex/cvar.h>
+ #include <rex/kernel/xam/module.h>
++#include <rex/kernel/xam/netplay.h>
+ #include <rex/kernel/xam/private.h>
+ #include <rex/kernel/xboxkrnl/error.h>
+ #include <rex/kernel/xboxkrnl/threading.h>
+@@ -42,8 +53,515 @@
+ #include <netinet/in.h>
+ #include <netinet/ip.h>
+ #include <sys/socket.h>
++#include <unistd.h>
+ #endif
+ 
++REXCVAR_DEFINE_BOOL(online_play, true, "Network",
++                    "Act as signed in to Xbox Live so the game's online modes can find and join "
++                    "games on your network (or a virtual LAN such as ZeroTier)");
++
++// ===== netplay (NHL 2K8 Recompiled patch): Xbox Live sessions found over the local network =====
++// Hosts announce their game session on the network every second; searching players collect
++// those announcements. Works on a home network, or over the internet through a virtual LAN
++// app (ZeroTier, Radmin VPN, Tailscale) with net_ip set to that app's address.
++REXCVAR_DEFINE_STRING(net_ip, "", "Network",
++                      "Your IPv4 address for online play (empty = automatic). Use your ZeroTier / "
++                      "Radmin VPN / Tailscale address to play over the internet, or 127.0.0.x to "
++                      "run two copies on one PC");
++REXCVAR_DEFINE_STRING(net_peers, "", "Network",
++                      "Extra addresses to announce games to, comma separated (for networks where "
++                      "broadcast does not reach the other player)");
++REXCVAR_DEFINE_INT32(net_lobby_port, 36020, "Network", "UDP port used to find games");
++REXCVAR_DEFINE_STRING(net_gamertag, "", "Network", "Gamertag shown to other players (empty = User)");
++
++namespace rex {
++namespace kernel {
++namespace xam {
++namespace netplay {
++
++bool OnlineEnabled() { return REXCVAR_GET(online_play); }
++
++#if REX_PLATFORM_WIN32
++using socklen_type = int;
++using sock_t = SOCKET;
++static const sock_t kBadSock = INVALID_SOCKET;
++static void CloseSock(sock_t s) { closesocket(s); }
++#else
++using socklen_type = socklen_t;
++using sock_t = int;
++static const sock_t kBadSock = -1;
++static void CloseSock(sock_t s) { close(s); }
++#endif
++
++static uint64_t NowMs() {
++  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                   std::chrono::steady_clock::now().time_since_epoch())
++                                   .count());
++}
++
++static void Put32(std::vector<uint8_t>& v, uint32_t x) {
++  for (int i = 0; i < 4; ++i) v.push_back(static_cast<uint8_t>(x >> (i * 8)));
++}
++static uint32_t Get32(const uint8_t* p) {
++  return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
++}
++static void StoreBe32(uint8_t* p, uint32_t x) {
++  p[0] = uint8_t(x >> 24); p[1] = uint8_t(x >> 16); p[2] = uint8_t(x >> 8); p[3] = uint8_t(x);
++}
++static void StoreBe16(uint8_t* p, uint16_t x) {
++  p[0] = uint8_t(x >> 8); p[1] = uint8_t(x);
++}
++
++// "a.b.c.d" -> host-order value, 0 if invalid.
++static uint32_t ParseIp(const std::string& s) {
++  uint32_t parts[4] = {0, 0, 0, 0};
++  int n = 0;
++  uint32_t cur = 0;
++  bool digit = false;
++  for (char c : s) {
++    if (c >= '0' && c <= '9') {
++      cur = cur * 10 + uint32_t(c - '0');
++      digit = true;
++      if (cur > 255) return 0;
++    } else if (c == '.' && digit && n < 3) {
++      parts[n++] = cur;
++      cur = 0;
++      digit = false;
++    } else if (c == ' ') {
++      continue;
++    } else {
++      return 0;
++    }
++  }
++  if (!digit || n != 3) return 0;
++  parts[3] = cur;
++  return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
++}
++
++std::string IpToString(uint32_t ip) {
++  return fmt::format("{}.{}.{}.{}", ip >> 24, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF);
++}
++
++static void EnsureWinsock() {
++#if REX_PLATFORM_WIN32
++  static std::once_flag once;
++  std::call_once(once, [] {
++    WSADATA data;
++    WSAStartup(MAKEWORD(2, 2), &data);
++  });
++#endif
++}
++
++bool HasFixedIp() { return ParseIp(REXCVAR_GET(net_ip)) != 0; }
++
++// This PC's address for online play, host order.
++uint32_t LocalIp() {
++  static std::once_flag once;
++  static uint32_t ip = 0;
++  std::call_once(once, [] {
++    ip = ParseIp(REXCVAR_GET(net_ip));
++    if (!ip) {
++      // Ask the OS which address it would use to reach the internet (nothing is sent).
++      EnsureWinsock();
++      sock_t s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
++      if (s != kBadSock) {
++        sockaddr_in to = {};
++        to.sin_family = AF_INET;
++        to.sin_port = htons(53);
++        to.sin_addr.s_addr = htonl(0x08080808);
++        if (connect(s, reinterpret_cast<sockaddr*>(&to), sizeof(to)) == 0) {
++          sockaddr_in me = {};
++          socklen_type len = sizeof(me);
++          if (getsockname(s, reinterpret_cast<sockaddr*>(&me), &len) == 0) {
++            ip = ntohl(me.sin_addr.s_addr);
++          }
++        }
++        CloseSock(s);
++      }
++    }
++    if (!ip) ip = 0x7F000001;
++    REXKRNL_INFO("netplay: this PC's address for online play is {}", IpToString(ip));
++  });
++  return ip;
++}
++
++// The XNADDR of a machine is made only from its IP, so every PC computes the same one.
++void MakeXnAddr(uint32_t ip, uint8_t* out) {
++  std::memset(out, 0, 36);
++  StoreBe32(out + 0, ip);   // ina
++  StoreBe32(out + 4, ip);   // inaOnline
++  StoreBe16(out + 8, 3074); // wPortOnline
++  out[10] = 0x00; out[11] = 0x22; out[12] = 0x48;  // abEnet
++  out[13] = uint8_t(ip >> 16); out[14] = uint8_t(ip >> 8); out[15] = uint8_t(ip);
++  StoreBe32(out + 16, ip);  // abOnline
++}
++
++uint32_t XnAddrIp(const uint8_t* xnaddr) {
++  return (uint32_t(xnaddr[0]) << 24) | (uint32_t(xnaddr[1]) << 16) | (uint32_t(xnaddr[2]) << 8) |
++         uint32_t(xnaddr[3]);
++}
++
++// A player ID that differs between PCs (online games tell players apart by it) but stays the
++// same on one PC: made from the computer's name, plus net_ip for two copies on one PC.
++uint64_t OnlineXuid(uint64_t profile_xuid) {
++  static std::once_flag once;
++  static uint32_t id = 0;
++  std::call_once(once, [] {
++    EnsureWinsock();
++    char host[256] = {};
++    if (gethostname(host, sizeof(host) - 1) != 0) host[0] = 0;
++    std::string key = std::string(host) + "|" + std::string(REXCVAR_GET(net_ip));
++    uint32_t h = 2166136261u;
++    for (unsigned char c : key) h = (h ^ c) * 16777619u;
++    id = h ? h : 1;
++  });
++  return (profile_xuid & 0xFFFFFFFF00000000ull) | id;
++}
++
++std::string Gamertag(const std::string& profile_name) {
++  std::string tag = REXCVAR_GET(net_gamertag);
++  if (tag.empty()) return profile_name;
++  if (tag.size() > 15) tag.resize(15);
++  return tag;
++}
++
++
++static std::mutex g_mutex;
++static std::map<uint32_t, uint32_t> g_contexts;  // XUserSetContext values of player 1
++static bool g_hosting = false;
++static bool g_started = false;
++static Session g_host;
++static uint32_t g_slots_pub = 0, g_slots_priv = 0;
++static std::map<uint64_t, Session> g_seen;
++static std::map<uint64_t, std::vector<uint8_t>> g_qos_data;  // XNetQosListen data by XNKID
++static std::map<uint32_t, uint64_t> g_peers_seen;  // other PCs heard on the network, by IP
++static std::once_flag g_thread_once;
++static sock_t g_sock = kBadSock;
++
++static uint64_t KidKey(const uint8_t* kid) {
++  uint64_t k = 0;
++  for (int i = 0; i < 8; ++i) k = (k << 8) | kid[i];
++  return k;
++}
++
++static void RandomBytes(uint8_t* p, size_t n) {
++  static std::mt19937_64 rng(std::random_device{}() ^ NowMs());
++  for (size_t i = 0; i < n; ++i) p[i] = static_cast<uint8_t>(rng());
++}
++
++static const char kMagic[8] = {'R', 'E', 'X', 'L', 'O', 'B', 'B', '1'};
++// "Is anyone hosting?" (flag 1) and "I'm here" (flag 0) messages. They let PCs learn each
++// other's addresses, so game announcements can also go straight to them, which is more
++// reliable than broadcast on Wi-Fi.
++static const char kQueryMagic[8] = {'R', 'E', 'X', 'L', 'O', 'B', 'Q', '1'};
++
++static std::vector<uint8_t> BuildAnnouncement() {
++  std::vector<uint8_t> v(kMagic, kMagic + 8);
++  Put32(v, REX_KERNEL_STATE()->title_id());
++  v.insert(v.end(), g_host.xnkid, g_host.xnkid + 8);
++  v.insert(v.end(), g_host.xnaddr, g_host.xnaddr + 36);
++  v.insert(v.end(), g_host.xnkey, g_host.xnkey + 16);
++  uint32_t open_pub = g_slots_pub > g_host.filled_pub ? g_slots_pub - g_host.filled_pub : 0;
++  uint32_t open_priv = g_slots_priv > g_host.filled_priv ? g_slots_priv - g_host.filled_priv : 0;
++  Put32(v, open_pub);
++  Put32(v, open_priv);
++  Put32(v, g_host.filled_pub);
++  Put32(v, g_host.filled_priv);
++  uint32_t nctx = static_cast<uint32_t>(std::min<size_t>(g_host.contexts.size(), 32));
++  Put32(v, nctx);
++  for (uint32_t i = 0; i < nctx; ++i) {
++    Put32(v, g_host.contexts[i].first);
++    Put32(v, g_host.contexts[i].second);
++  }
++  auto it = g_qos_data.find(KidKey(g_host.xnkid));
++  uint32_t qlen = it == g_qos_data.end() ? 0 : uint32_t(std::min<size_t>(it->second.size(), 512));
++  Put32(v, qlen);
++  if (qlen) v.insert(v.end(), it->second.begin(), it->second.begin() + qlen);
++  return v;
++}
++
++static void ParseAnnouncement(const uint8_t* p, size_t len, uint32_t from_ip) {
++  if (len < 8 + 4 + 8 + 36 + 16 + 20 || std::memcmp(p, kMagic, 8) != 0) return;
++  size_t o = 8;
++  if (Get32(p + o) != REX_KERNEL_STATE()->title_id()) return;
++  o += 4;
++  Session s;
++  std::memcpy(s.xnkid, p + o, 8); o += 8;
++  std::memcpy(s.xnaddr, p + o, 36); o += 36;
++  std::memcpy(s.xnkey, p + o, 16); o += 16;
++  s.open_pub = Get32(p + o); s.open_priv = Get32(p + o + 4);
++  s.filled_pub = Get32(p + o + 8); s.filled_priv = Get32(p + o + 12);
++  uint32_t nctx = Get32(p + o + 16);
++  o += 20;
++  if (nctx > 32 || o + nctx * 8 + 4 > len) return;
++  for (uint32_t i = 0; i < nctx; ++i, o += 8) s.contexts.emplace_back(Get32(p + o), Get32(p + o + 4));
++  uint32_t qlen = Get32(p + o);
++  o += 4;
++  if (qlen > 512 || o + qlen > len) return;
++  s.qos.assign(p + o, p + o + qlen);
++  s.from_ip = from_ip;
++  s.seen_ms = NowMs();
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_hosting && KidKey(s.xnkid) == KidKey(g_host.xnkid)) return;
++  bool is_new = g_seen.find(KidKey(s.xnkid)) == g_seen.end();
++  g_seen[KidKey(s.xnkid)] = s;
++  if (is_new) {
++    REXKRNL_INFO("netplay: found a game hosted at {} (announced from {})",
++                 IpToString(XnAddrIp(s.xnaddr)), IpToString(from_ip));
++  }
++}
++
++static void SendTo(const std::vector<uint8_t>& pkt, uint32_t ip, uint16_t port) {
++  sockaddr_in to = {};
++  to.sin_family = AF_INET;
++  to.sin_port = htons(port);
++  to.sin_addr.s_addr = htonl(ip);
++  sendto(g_sock, reinterpret_cast<const char*>(pkt.data()), int(pkt.size()), 0,
++         reinterpret_cast<sockaddr*>(&to), sizeof(to));
++}
++
++static std::vector<uint32_t> ConfiguredPeers() {
++  static std::once_flag once;
++  static std::vector<uint32_t> peers;
++  std::call_once(once, [] {
++    std::string list = REXCVAR_GET(net_peers);
++    size_t start = 0;
++    while (start <= list.size()) {
++      size_t comma = list.find(',', start);
++      if (comma == std::string::npos) comma = list.size();
++      uint32_t ip = ParseIp(list.substr(start, comma - start));
++      if (ip && ip != LocalIp()) peers.push_back(ip);
++      start = comma + 1;
++    }
++  });
++  return peers;
++}
++
++// Every address a lobby message goes to: broadcast, this network's broadcast, net_peers, and
++// (optionally) every PC heard from in the last minute.
++static std::vector<uint32_t> Targets(bool learned) {
++  uint32_t me = LocalIp();
++  std::vector<uint32_t> t = {0xFFFFFFFF, (me & 0xFFFFFF00) | 0xFF};
++  for (uint32_t ip : ConfiguredPeers()) t.push_back(ip);
++  if (learned) {
++    uint64_t now = NowMs();
++    std::lock_guard<std::mutex> lock(g_mutex);
++    for (auto& kv : g_peers_seen) {
++      if (now - kv.second < 60000 &&
++          std::find(t.begin(), t.end(), kv.first) == t.end()) {
++        t.push_back(kv.first);
++      }
++    }
++  }
++  return t;
++}
++
++static std::vector<uint8_t> BuildQuery(uint32_t flag) {
++  std::vector<uint8_t> v(kQueryMagic, kQueryMagic + 8);
++  Put32(v, REX_KERNEL_STATE()->title_id());
++  Put32(v, flag);
++  return v;
++}
++
++static void HandlePacket(const uint8_t* p, size_t len, uint32_t from_ip, uint16_t port) {
++  if (from_ip == LocalIp() || len < 16) return;
++  if (Get32(p + 8) != REX_KERNEL_STATE()->title_id()) return;
++  bool query = std::memcmp(p, kQueryMagic, 8) == 0;
++  if (!query && std::memcmp(p, kMagic, 8) != 0) return;
++  bool new_peer;
++  {
++    std::lock_guard<std::mutex> lock(g_mutex);
++    new_peer = g_peers_seen.find(from_ip) == g_peers_seen.end();
++    g_peers_seen[from_ip] = NowMs();
++  }
++  if (new_peer) REXKRNL_INFO("netplay: another PC is on the network at {}", IpToString(from_ip));
++  if (!query) {
++    ParseAnnouncement(p, len, from_ip);
++    return;
++  }
++  if (Get32(p + 12) == 1) {
++    // Someone is searching: answer right away if we are hosting.
++    std::vector<uint8_t> pkt;
++    {
++      std::lock_guard<std::mutex> lock(g_mutex);
++      if (g_hosting && !g_started) pkt = BuildAnnouncement();
++    }
++    if (!pkt.empty()) SendTo(pkt, from_ip, port);
++  }
++}
++
++static void LobbyThread() {
++  uint16_t port = static_cast<uint16_t>(REXCVAR_GET(net_lobby_port));
++  uint64_t last_announce = 0, last_hello = 0;
++  std::vector<uint8_t> buf(2048);
++  while (true) {
++    fd_set set;
++    FD_ZERO(&set);
++    FD_SET(g_sock, &set);
++    timeval tv = {0, 200 * 1000};
++    int r = select(int(g_sock) + 1, &set, nullptr, nullptr, &tv);
++    if (r > 0) {
++      sockaddr_in from = {};
++      socklen_type from_len = sizeof(from);
++      int n = recvfrom(g_sock, reinterpret_cast<char*>(buf.data()), int(buf.size()), 0,
++                       reinterpret_cast<sockaddr*>(&from), &from_len);
++      if (n > 0) HandlePacket(buf.data(), size_t(n), ntohl(from.sin_addr.s_addr), port);
++    }
++    uint64_t now = NowMs();
++    if (now - last_announce >= 1000) {
++      last_announce = now;
++      std::vector<uint8_t> pkt;
++      {
++        std::lock_guard<std::mutex> lock(g_mutex);
++        if (g_hosting && !g_started) pkt = BuildAnnouncement();
++        for (auto it = g_seen.begin(); it != g_seen.end();) {
++          if (now - it->second.seen_ms > 4000) it = g_seen.erase(it); else ++it;
++        }
++      }
++      if (!pkt.empty()) {
++        for (uint32_t ip : Targets(true)) SendTo(pkt, ip, port);
++      }
++    }
++    if (now - last_hello >= 2000) {
++      last_hello = now;
++      auto hello = BuildQuery(0);
++      for (uint32_t ip : Targets(false)) SendTo(hello, ip, port);
++    }
++  }
++}
++
++static void StartLobby() {
++  std::call_once(g_thread_once, [] {
++    EnsureWinsock();
++    g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
++    if (g_sock == kBadSock) {
++      REXKRNL_ERROR("netplay: could not open the game-finder socket");
++      return;
++    }
++    int one = 1;
++    setsockopt(g_sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&one), sizeof(one));
++    setsockopt(g_sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof(one));
++    sockaddr_in addr = {};
++    addr.sin_family = AF_INET;
++    addr.sin_port = htons(static_cast<uint16_t>(REXCVAR_GET(net_lobby_port)));
++    // With a fixed address (VPN or 127.0.0.x), listen only there; otherwise on every network.
++    addr.sin_addr.s_addr = HasFixedIp() ? htonl(LocalIp()) : htonl(INADDR_ANY);
++    if (bind(g_sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
++      REXKRNL_ERROR("netplay: could not listen on UDP port {} for games",
++                    REXCVAR_GET(net_lobby_port));
++      CloseSock(g_sock);
++      g_sock = kBadSock;
++      return;
++    }
++    REXKRNL_INFO("netplay: looking for games on UDP port {}", REXCVAR_GET(net_lobby_port));
++    std::thread(LobbyThread).detach();
++  });
++}
++
++void SetContext(uint32_t id, uint32_t value) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  g_contexts[id] = value;
++}
++
++// XSessionCreate as host: makes the session's XSESSION_INFO (60 bytes) and starts announcing it.
++void HostSession(uint8_t* info_out, uint32_t slots_pub, uint32_t slots_priv) {
++  StartLobby();
++  std::lock_guard<std::mutex> lock(g_mutex);
++  g_host = Session();
++  RandomBytes(g_host.xnkid, 8);
++  g_host.xnkid[0] = uint8_t(0x80 | (g_host.xnkid[0] & 0x0F));  // online peer session
++  MakeXnAddr(LocalIp(), g_host.xnaddr);
++  RandomBytes(g_host.xnkey, 16);
++  for (auto& c : g_contexts) g_host.contexts.emplace_back(c.first, c.second);
++  g_slots_pub = slots_pub;
++  g_slots_priv = slots_priv;
++  g_hosting = true;
++  g_started = false;
++  if (info_out) {
++    std::memcpy(info_out, g_host.xnkid, 8);
++    std::memcpy(info_out + 8, g_host.xnaddr, 36);
++    std::memcpy(info_out + 44, g_host.xnkey, 16);
++  }
++  REXKRNL_INFO("netplay: hosting a game ({} public, {} private slots, {} settings)", slots_pub,
++               slots_priv, g_host.contexts.size());
++}
++
++void JoinedSession(const uint8_t* info) {
++  if (!info) return;
++  REXKRNL_INFO("netplay: joining the game hosted at {}", IpToString(XnAddrIp(info + 8)));
++}
++
++void DeleteSession() {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (g_hosting) REXKRNL_INFO("netplay: stopped hosting");
++  g_hosting = false;
++}
++
++void SessionJoined(bool remote, uint32_t count, bool private_slots) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  if (!g_hosting) return;
++  if (private_slots) g_host.filled_priv += count; else g_host.filled_pub += count;
++  if (remote) REXKRNL_INFO("netplay: {} player(s) joined your game", count);
++}
++
++void SessionStarted(bool started) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  g_started = started;
++}
++
++static std::vector<Session> MatchingSessions(
++    const std::vector<std::pair<uint32_t, uint32_t>>& wanted) {
++  std::vector<Session> out;
++  std::lock_guard<std::mutex> lock(g_mutex);
++  for (auto& kv : g_seen) {
++    const Session& s = kv.second;
++    if (!s.open_pub && !s.open_priv) continue;
++    bool ok = true;
++    for (auto& w : wanted) {
++      for (auto& c : s.contexts) {
++        if (c.first == w.first && c.second != w.second) ok = false;
++      }
++    }
++    if (ok) out.push_back(s);
++  }
++  return out;
++}
++
++// Sessions announced by other PCs in the last few seconds that match the searched settings.
++// If none are known yet, ask the network "is anyone hosting?" and wait briefly for answers.
++std::vector<Session> FindSessions(const std::vector<std::pair<uint32_t, uint32_t>>& wanted) {
++  StartLobby();
++  auto out = MatchingSessions(wanted);
++  if (!out.empty() || g_sock == kBadSock) return out;
++  uint16_t port = static_cast<uint16_t>(REXCVAR_GET(net_lobby_port));
++  auto query = BuildQuery(1);
++  for (int round = 0; round < 3 && out.empty(); ++round) {
++    for (uint32_t ip : Targets(true)) SendTo(query, ip, port);
++    for (int i = 0; i < 5 && out.empty(); ++i) {
++      std::this_thread::sleep_for(std::chrono::milliseconds(100));
++      out = MatchingSessions(wanted);
++    }
++  }
++  return out;
++}
++
++void SetQosData(const uint8_t* kid, const uint8_t* data, uint32_t len) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  g_qos_data[KidKey(kid)].assign(data, data + len);
++}
++
++std::vector<uint8_t> GetQosData(const uint8_t* kid) {
++  std::lock_guard<std::mutex> lock(g_mutex);
++  auto it = g_seen.find(KidKey(kid));
++  if (it != g_seen.end()) return it->second.qos;
++  return {};
++}
++
++}  // namespace netplay
++}  // namespace xam
++}  // namespace kernel
++}  // namespace rex
++
+ namespace rex {
+ namespace kernel {
+ namespace xam {
+@@ -199,6 +717,11 @@ u32 NetDll_XNetStartup_entry(u32 caller, ppc_ptr_t<XNetStartupParams> params) {
+   }
+   */
+ 
++  // Start listening for other players' games right away, so a search finds games that were
++  // announced before it.
++  if (netplay::OnlineEnabled()) {
++    netplay::StartLobby();
++  }
+   return 0;
+ }
+ 
+@@ -436,6 +959,13 @@ struct XnAddrStatus {
+ };
+ 
+ u32 NetDll_XNetGetTitleXnAddr_entry(u32 caller, ppc_ptr_t<XNADDR> addr_ptr) {
++  if (netplay::OnlineEnabled() && addr_ptr) {
++    netplay::MakeXnAddr(netplay::LocalIp(),
++                        REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(addr_ptr.guest_address()));
++    return XnAddrStatus::XNET_GET_XNADDR_STATIC | XnAddrStatus::XNET_GET_XNADDR_ETHERNET |
++           XnAddrStatus::XNET_GET_XNADDR_GATEWAY | XnAddrStatus::XNET_GET_XNADDR_DNS |
++           XnAddrStatus::XNET_GET_XNADDR_ONLINE;
++  }
+   // Just return a loopback address atm.
+   addr_ptr->ina.s_addr = htonl(INADDR_LOOPBACK);
+   addr_ptr->inaOnline.s_addr = 0;
+@@ -466,28 +996,48 @@ u32 NetDll_XNetGetDebugXnAddr_entry(u32 caller, ppc_ptr_t<XNADDR> addr_ptr) {
+   return XnAddrStatus::XNET_GET_XNADDR_NONE;
+ }
+ 
+-u32 NetDll_XNetXnAddrToMachineId_entry(u32 caller, ppc_ptr_t<XNADDR> addr_ptr, mapped_u32 id_ptr) {
+-  // Tell the caller we're not signed in to live (non-zero ret)
+-  return 1;
++u32 NetDll_XNetXnAddrToMachineId_entry(u32 caller, ppc_ptr_t<XNADDR> addr_ptr, u32 id_ptr) {
++  if (!netplay::OnlineEnabled() || !addr_ptr || !id_ptr) {
++    // Tell the caller we're not signed in to live (non-zero ret)
++    return 1;
++  }
++  uint32_t ip = netplay::XnAddrIp(
++      REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(addr_ptr.guest_address()));
++  memory::store_and_swap<uint64_t>(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(id_ptr),
++                                   0xFA00000000000000ull | ip);
++  return 0;
+ }
+ 
+ void NetDll_XNetInAddrToString_entry(u32 caller, u32 in_addr, mapped_string string_out,
+                                      u32 string_size) {
+-  rex::string::copy_truncating(string_out, "666.666.666.666", string_size);
++  rex::string::copy_truncating(string_out, netplay::IpToString(in_addr), string_size);
+ }
+ 
+ // This converts a XNet address to an IN_ADDR. The IN_ADDR is used for
+ // subsequent socket calls (like a handle to a XNet address)
+-u32 NetDll_XNetXnAddrToInAddr_entry(u32 caller, ppc_ptr_t<XNADDR> xn_addr, mapped_void xid,
+-                                    mapped_void in_addr) {
+-  return 1;
++u32 NetDll_XNetXnAddrToInAddr_entry(u32 caller, ppc_ptr_t<XNADDR> xn_addr, u32 xid,
++                                    u32 in_addr) {
++  if (!xn_addr || !in_addr) {
++    return 1;
++  }
++  // XNADDRs are made from the machine's real IP address, so the IN_ADDR is just that IP.
++  std::memcpy(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(in_addr),
++              REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(xn_addr.guest_address()), 4);
++  return 0;
+ }
+ 
+ // Does the reverse of the above.
+-// FIXME: Arguments may not be correct.
+-u32 NetDll_XNetInAddrToXnAddr_entry(u32 caller, mapped_void in_addr, ppc_ptr_t<XNADDR> xn_addr,
+-                                    mapped_void xid) {
+-  return 1;
++u32 NetDll_XNetInAddrToXnAddr_entry(u32 caller, u32 in_addr, ppc_ptr_t<XNADDR> xn_addr,
++                                    u32 xid) {
++  if (!xn_addr) {
++    return 1;
++  }
++  netplay::MakeXnAddr(in_addr,
++                      REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(xn_addr.guest_address()));
++  if (xid) {
++    std::memset(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(xid), 0, 8);
++  }
++  return 0;
+ }
+ 
+ // https://www.google.com/patents/WO2008112448A1?cl=en
+@@ -506,6 +1056,10 @@ struct XEthernetStatus {
+ };
+ 
+ u32 NetDll_XNetGetEthernetLinkStatus_entry(u32 caller) {
++  if (REXCVAR_GET(online_play)) {
++    return XEthernetStatus::XNET_ETHERNET_LINK_ACTIVE | XEthernetStatus::XNET_ETHERNET_LINK_100MBPS |
++           XEthernetStatus::XNET_ETHERNET_LINK_FULL_DUPLEX;
++  }
+   return 0;
+ }
+ 
+@@ -557,11 +1111,89 @@ u32 NetDll_XNetQosRelease_entry(u32 caller, ppc_ptr_t<XNQOS> qos) {
+   return 0;
+ }
+ 
+-u32 NetDll_XNetQosListen_entry(u32 caller, mapped_void id, mapped_void data, u32 data_size, u32 r7,
++u32 NetDll_XNetQosListen_entry(u32 caller, u32 id, u32 data, u32 data_size, u32 r7,
+                                u32 flags) {
+-  return X_ERROR_FUNCTION_FAILED;
++  // XNET_QOS_LISTEN_SET_DATA: data that players looking at this game receive with their QoS probe.
++  if ((flags & 0x04) && id && data && data_size) {
++    netplay::SetQosData(REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(id),
++                        REX_KERNEL_MEMORY()->TranslateVirtual<uint8_t*>(data),
++                        std::min<uint32_t>(data_size, 512));
++  }
++  return 0;
+ }
+ 
++// Measures the connection to other players' games. Everything found on the network is
++// reported as reachable with a good connection, plus the host's QoS data.
++u32 NetDll_XNetQosLookup_entry(u32 caller, u32 count, u32 xnaddr_ptrs, u32 xnkid_ptrs,
++                               u32 xnkey_ptrs, u32 ina_count, u32 inas, u32 service_ids,
++                               u32 probes, u32 bits_per_sec, u32 flags, u32 event_handle,
++                               mapped_u32 pqos) {
++  auto mem = REX_KERNEL_MEMORY();
++  std::vector<std::vector<uint8_t>> datas(count);
++  uint32_t data_total = 0;
++  for (uint32_t i = 0; i < count; ++i) {
++    if (xnkid_ptrs) {
++      uint32_t kid = memory::load_and_swap<uint32_t>(mem->TranslateVirtual<uint8_t*>(xnkid_ptrs) +
++                                                     i * 4);
++      if (kid) datas[i] = netplay::GetQosData(mem->TranslateVirtual<uint8_t*>(kid));
++    }
++    data_total += uint32_t(datas[i].size());
++  }
++  uint32_t header = 8 + std::max<uint32_t>(count, 1) * 24;
++  uint32_t guest = mem->SystemHeapAlloc(header + data_total);
++  uint8_t* q = mem->TranslateVirtual<uint8_t*>(guest);
++  std::memset(q, 0, header + data_total);
++  memory::store_and_swap<uint32_t>(q + 0, count);
++  memory::store_and_swap<uint32_t>(q + 4, 0);
++  uint32_t data_at = guest + header;
++  for (uint32_t i = 0; i < count; ++i) {
++    uint8_t* e = q + 8 + i * 24;
++    e[0] = uint8_t(0x01 | 0x02 | (datas[i].empty() ? 0 : 0x08));  // complete, contacted, data
++    memory::store_and_swap<uint16_t>(e + 2, 4);                   // probes sent
++    memory::store_and_swap<uint16_t>(e + 4, 4);                   // probes received
++    memory::store_and_swap<uint16_t>(e + 6, uint16_t(datas[i].size()));
++    memory::store_and_swap<uint32_t>(e + 8, datas[i].empty() ? 0 : data_at);
++    memory::store_and_swap<uint16_t>(e + 12, 30);                 // RTT min (ms)
++    memory::store_and_swap<uint16_t>(e + 14, 40);                 // RTT median (ms)
++    memory::store_and_swap<uint32_t>(e + 16, 8000000);            // up bits/s
++    memory::store_and_swap<uint32_t>(e + 20, 8000000);            // down bits/s
++    if (!datas[i].empty()) {
++      std::memcpy(mem->TranslateVirtual<uint8_t*>(data_at), datas[i].data(), datas[i].size());
++      data_at += uint32_t(datas[i].size());
++    }
++  }
++  if (pqos) {
++    *pqos = guest;
++  }
++  if (event_handle) {
++    auto ev = REX_KERNEL_OBJECTS()->LookupObject<XEvent>(event_handle);
++    if (ev) ev->Set(0, false);
++  }
++  REXKRNL_INFO("netplay: connection check for {} game(s)", count);
++  return 0;
++}
++
++u32 NetDll_XNetCreateKey_entry(u32 caller, u32 xnkid, u32 xnkey) {
++  static std::mt19937 rng(std::random_device{}());
++  auto mem = REX_KERNEL_MEMORY();
++  if (xnkid) {
++    uint8_t* p = mem->TranslateVirtual<uint8_t*>(xnkid);
++    for (int i = 0; i < 8; ++i) p[i] = uint8_t(rng());
++    p[0] = uint8_t(0x80 | (p[0] & 0x0F));
++  }
++  if (xnkey) {
++    uint8_t* p = mem->TranslateVirtual<uint8_t*>(xnkey);
++    for (int i = 0; i < 16; ++i) p[i] = uint8_t(rng());
++  }
++  return 0;
++}
++
++u32 NetDll_XNetRegisterKey_entry(u32 caller, u32 xnkid, u32 xnkey) { return 0; }
++u32 NetDll_XNetUnregisterKey_entry(u32 caller, u32 xnkid) { return 0; }
++u32 NetDll_XNetConnect_entry(u32 caller, u32 in_addr) { return 0; }
++// XNET_CONNECT_STATUS_CONNECTED
++u32 NetDll_XNetGetConnectStatus_entry(u32 caller, u32 in_addr) { return 2; }
++
+ u32 NetDll_inet_addr_entry(mapped_string addr_ptr) {
+   if (!addr_ptr) {
+     return -1;
+@@ -670,6 +1302,11 @@ u32 NetDll_bind_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR_IN> nam
+   }
+ 
+   N_XSOCKADDR_IN native_name(name);
++  // With a fixed net_ip (VPN, or 127.0.0.x for two copies on one PC), bind the game's
++  // sockets to that address instead of every network.
++  if (netplay::OnlineEnabled() && !REXCVAR_GET(net_ip).empty() && native_name.sin_addr == 0u) {
++    native_name.sin_addr = netplay::LocalIp();
++  }
+   X_STATUS status = socket->Bind(&native_name, namelen);
+   if (XFAILED(status)) {
+     XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(status));
+@@ -887,6 +1524,12 @@ u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u3
+ #if REX_PLATFORM_WIN32
+     uint32_t error_code = WSAGetLastError();
+     XThread::SetLastError(error_code);
++    // netplay: note unusual receive errors (not "nothing to read yet") in the normal log.
++    static std::atomic<int> logged{0};
++    if (error_code != 10035 && logged.fetch_add(1) < 20) {
++      REXKRNL_ERROR("netplay: network receive error {} on socket {:08X}", error_code,
++                    uint32_t(socket_handle));
++    }
+ #else
+     XThread::SetLastError(0x0);
+ #endif
+@@ -916,7 +1559,52 @@ u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32
+   }
+ 
+   N_XSOCKADDR_IN native_to(to_ptr);
+-  return socket->SendTo(buf_ptr, buf_len, flags, &native_to, to_len);
++  int ret = socket->SendTo(buf_ptr, buf_len, flags, &native_to, to_len);
++#if REX_PLATFORM_WIN32
++  if (ret == -1) {
++    uint32_t error_code = WSAGetLastError();
++    XThread::SetLastError(error_code);
++    static std::atomic<int> logged{0};
++    if (error_code != 10035 && logged.fetch_add(1) < 20) {
++      REXKRNL_ERROR("netplay: network send error {} to {}:{}", error_code,
++                    netplay::IpToString(uint32_t(native_to.sin_addr)),
++                    uint16_t(native_to.sin_port));
++    }
++  }
++#endif
++  return ret;
++}
++
++u32 NetDll_getsockname_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR_IN> name,
++                             mapped_u32 namelen) {
++  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
++  if (!socket) {
++    XThread::SetLastError(0x2736);  // WSAENOTSOCK
++    return -1;
++  }
++  sockaddr_in native = {};
++#if REX_PLATFORM_WIN32
++  int len = sizeof(native);
++#else
++  socklen_t len = sizeof(native);
++#endif
++  if (getsockname(static_cast<netplay::sock_t>(socket->native_handle()),
++                  reinterpret_cast<sockaddr*>(&native), &len) != 0) {
++    XThread::SetLastError(0x2726);  // WSAEINVAL
++    return -1;
++  }
++  if (name) {
++    uint32_t ip = ntohl(native.sin_addr.s_addr);
++    if (!ip) ip = netplay::LocalIp();
++    name->sin_family = 2;
++    name->sin_port = ntohs(native.sin_port);
++    name->sin_addr = ip;
++    std::memset(name->x_sin_zero, 0, sizeof(name->x_sin_zero));
++  }
++  if (namelen) {
++    *namelen = 16;
++  }
++  return 0;
+ }
+ 
+ u32 NetDll___WSAFDIsSet_entry(u32 socket_handle, ppc_ptr_t<x_fd_set> fd_set) {
+@@ -1030,25 +1718,25 @@ REX_EXPORT_STUB(__imp__NetDll_XHttpSetStatusCallback);
+ REX_EXPORT_STUB(__imp__NetDll_XHttpShutdown);
+ REX_EXPORT_STUB(__imp__NetDll_XHttpStartup);
+ REX_EXPORT_STUB(__imp__NetDll_XHttpWriteData);
+-REX_EXPORT_STUB(__imp__NetDll_XNetConnect);
+-REX_EXPORT_STUB(__imp__NetDll_XNetCreateKey);
++REX_EXPORT(__imp__NetDll_XNetConnect, rex::kernel::xam::NetDll_XNetConnect_entry)
++REX_EXPORT(__imp__NetDll_XNetCreateKey, rex::kernel::xam::NetDll_XNetCreateKey_entry)
+ REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseLookup);
+ REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseRelease);
+ REX_EXPORT_STUB(__imp__NetDll_XNetGetBroadcastVersionStatus);
+-REX_EXPORT_STUB(__imp__NetDll_XNetGetConnectStatus);
++REX_EXPORT(__imp__NetDll_XNetGetConnectStatus, rex::kernel::xam::NetDll_XNetGetConnectStatus_entry)
+ REX_EXPORT_STUB(__imp__NetDll_XNetGetSystemLinkPort);
+ REX_EXPORT_STUB(__imp__NetDll_XNetGetXnAddrPlatform);
+ REX_EXPORT_STUB(__imp__NetDll_XNetInAddrToServer);
+ REX_EXPORT_STUB(__imp__NetDll_XNetQosGetListenStats);
+-REX_EXPORT_STUB(__imp__NetDll_XNetQosLookup);
+-REX_EXPORT_STUB(__imp__NetDll_XNetRegisterKey);
++REX_EXPORT(__imp__NetDll_XNetQosLookup, rex::kernel::xam::NetDll_XNetQosLookup_entry)
++REX_EXPORT(__imp__NetDll_XNetRegisterKey, rex::kernel::xam::NetDll_XNetRegisterKey_entry)
+ REX_EXPORT_STUB(__imp__NetDll_XNetReplaceKey);
+ REX_EXPORT_STUB(__imp__NetDll_XNetServerToInAddr);
+ REX_EXPORT_STUB(__imp__NetDll_XNetSetOpt);
+ REX_EXPORT_STUB(__imp__NetDll_XNetStartupEx);
+ REX_EXPORT_STUB(__imp__NetDll_XNetTsAddrToInAddr);
+ REX_EXPORT_STUB(__imp__NetDll_XNetUnregisterInAddr);
+-REX_EXPORT_STUB(__imp__NetDll_XNetUnregisterKey);
++REX_EXPORT(__imp__NetDll_XNetUnregisterKey, rex::kernel::xam::NetDll_XNetUnregisterKey_entry)
+ REX_EXPORT_STUB(__imp__NetDll_XmlDownloadContinue);
+ REX_EXPORT_STUB(__imp__NetDll_XmlDownloadGetParseTime);
+ REX_EXPORT_STUB(__imp__NetDll_XmlDownloadGetReceivedDataSize);
+@@ -1098,5 +1786,5 @@ REX_EXPORT_STUB(__imp__NetDll_XnpToolSetCallbacks);
+ REX_EXPORT_STUB(__imp__NetDll_XnpUnregisterKeyForCallerType);
+ REX_EXPORT_STUB(__imp__NetDll_XnpUpdateConfigParams);
+ REX_EXPORT_STUB(__imp__NetDll_getpeername);
+-REX_EXPORT_STUB(__imp__NetDll_getsockname);
++REX_EXPORT(__imp__NetDll_getsockname, rex::kernel::xam::NetDll_getsockname_entry)
+ REX_EXPORT_STUB(__imp__NetDll_getsockopt);
+diff --git a/src/kernel/xam/xam_user.cpp b/src/kernel/xam/xam_user.cpp
+index 8778066..ea446cb 100644
+--- a/src/kernel/xam/xam_user.cpp
++++ b/src/kernel/xam/xam_user.cpp
+@@ -15,6 +15,7 @@
+ #include <cstring>
+ 
+ #include <rex/cvar.h>
++#include <rex/kernel/xam/netplay.h>
+ #include <rex/kernel/xam/private.h>
+ #include <rex/logging.h>
+ #include <rex/math.h>
+@@ -61,6 +62,9 @@ i32 XamUserGetXUID_entry(u32 user_index, u32 type_mask, mapped_u64 xuid_ptr) {
+   } else {
+     result = X_E_INVALIDARG;
+   }
++  if (netplay::OnlineEnabled() && result == X_E_SUCCESS) {
++    xuid = netplay::OnlineXuid(xuid);
++  }
+   *xuid_ptr = xuid;
+   return result;
+ }
+@@ -71,6 +75,9 @@ u32 XamUserGetSigninState_entry(u32 user_index) {
+     if (user_index == 0) {
+       const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+       signin_state = user_profile->signin_state();
++      if (netplay::OnlineEnabled()) {
++        signin_state = 2;  // signed in to Xbox Live
++      }
+     }
+   }
+   return signin_state;
+@@ -100,6 +107,12 @@ i32 XamUserGetSigninInfo_entry(u32 user_index, u32 flags, ppc_ptr_t<X_USER_SIGNI
+   info->xuid = user_profile->xuid();
+   info->signin_state = user_profile->signin_state();
+   rex::string::copy_truncating(info->name, user_profile->name(), rex::countof(info->name));
++  if (netplay::OnlineEnabled()) {
++    info->xuid = netplay::OnlineXuid(user_profile->xuid());
++    info->signin_state = 2;
++    rex::string::copy_truncating(info->name, netplay::Gamertag(user_profile->name()),
++                                 rex::countof(info->name));
++  }
+   return X_E_SUCCESS;
+ }
+ 
+@@ -113,7 +126,7 @@ u32 XamUserGetName_entry(u32 user_index, mapped_string buffer, u32 buffer_len) {
+   }
+ 
+   const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+-  const auto& user_name = user_profile->name();
++  const auto user_name = netplay::Gamertag(user_profile->name());
+   rex::string::copy_truncating(buffer, user_name, std::min(buffer_len, uint32_t(16)));
+   return X_E_SUCCESS;
+ }
+@@ -132,7 +145,7 @@ u32 XamUserGetGamerTag_entry(u32 user_index, mapped_wstring buffer, u32 buffer_l
+   }
+ 
+   const auto& user_profile = REX_KERNEL_STATE()->user_profile();
+-  auto user_name = rex::string::to_utf16(user_profile->name());
++  auto user_name = rex::string::to_utf16(netplay::Gamertag(user_profile->name()));
+   rex::string::copy_and_swap_truncating(buffer, user_name, std::min(buffer_len, uint32_t(16)));
+   return X_E_SUCCESS;
+ }
+@@ -383,7 +396,7 @@ u32 XamUserCheckPrivilege_entry(u32 user_index, u32 mask, mapped_u32 out_value)
+   }
+ 
+   // If we deny everything, games should hopefully not try to do stuff.
+-  *out_value = 0;
++  *out_value = netplay::OnlineEnabled() ? 1 : 0;
+   return X_ERROR_SUCCESS;
+ }
+ 
+diff --git a/src/system/xsocket.cpp b/src/system/xsocket.cpp
+index 2d13ac8..eb9ea46 100644
+--- a/src/system/xsocket.cpp
++++ b/src/system/xsocket.cpp
+@@ -24,6 +24,14 @@
+ #include <WinSock2.h>
+ 
+ #include <WS2tcpip.h>
++// netplay (NHL 2K8 Recompiled patch): ioctls that stop UDP sockets from reporting
++// "connection reset" errors.
++#ifndef SIO_UDP_CONNRESET
++#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
++#endif
++#ifndef SIO_UDP_NETRESET
++#define SIO_UDP_NETRESET _WSAIOW(IOC_VENDOR, 15)
++#endif
+ #else
+ #include <arpa/inet.h>
+ #include <netinet/in.h>
+@@ -57,6 +65,20 @@ X_STATUS XSocket::Initialize(AddressFamily af, Type type, Protocol proto) {
+     return X_STATUS_UNSUCCESSFUL;
+   }
+ 
++#if REX_PLATFORM_WIN32
++  if (type == X_SOCK_DGRAM) {
++    // netplay (NHL 2K8 Recompiled patch): when a packet reaches a closed port, Windows reports
++    // the "port unreachable" reply as WSAECONNRESET on the socket's next receive. An Xbox never
++    // does that, and games treat it as a lost connection, so turn it off.
++    BOOL off = FALSE;
++    DWORD bytes = 0;
++    WSAIoctl(static_cast<SOCKET>(native_handle_), SIO_UDP_CONNRESET, &off, sizeof(off), nullptr, 0,
++             &bytes, nullptr, nullptr);
++    WSAIoctl(static_cast<SOCKET>(native_handle_), SIO_UDP_NETRESET, &off, sizeof(off), nullptr, 0,
++             &bytes, nullptr, nullptr);
++  }
++#endif
++
+   return X_STATUS_SUCCESS;
+ }
+ 
+@@ -193,7 +215,7 @@ int XSocket::RecvFrom(uint8_t* buf, uint32_t buf_len, uint32_t flags, N_XSOCKADD
+   if (from) {
+     from->sin_family = nfrom.sin_family;
+     from->sin_addr = ntohl(nfrom.sin_addr.s_addr);  // BE <- BE
+-    from->sin_port = nfrom.sin_port;
++    from->sin_port = ntohs(nfrom.sin_port);  // BE <- BE
+     std::memset(from->x_sin_zero, 0, sizeof(from->x_sin_zero));
+   }
+ 
+@@ -223,9 +245,11 @@ int XSocket::SendTo(uint8_t* buf, uint32_t buf_len, uint32_t flags, N_XSOCKADDR_
+ 
+   sockaddr_in nto;
+   if (to) {
+-    nto.sin_addr.s_addr = to->sin_addr;
++    // netplay (NHL 2K8 Recompiled patch): to->sin_addr / sin_port hold host-order values; the native
++    // sockaddr needs network order.
++    nto.sin_addr.s_addr = htonl(uint32_t(to->sin_addr));
+     nto.sin_family = to->sin_family;
+-    nto.sin_port = to->sin_port;
++    nto.sin_port = htons(uint16_t(to->sin_port));
+   }
+ 
+   return sendto(native_handle_, reinterpret_cast<char*>(buf), buf_len, flags,

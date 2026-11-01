@@ -97,7 +97,7 @@ if (-not $failed) {
             $ws = New-Object -ComObject WScript.Shell
             $lnk = $ws.CreateShortcut($lnkPath)
             $lnk.TargetPath = $exe
-            $lnk.Arguments = "--game_data_root=`"$AssetsDir`" --gpu_plugin=xenos --mnk_mode=true --log_level=error"
+            $lnk.Arguments = "--game_data_root=`"$AssetsDir`" --gpu_plugin=xenos --mnk_mode=true --log_level=error" + $ExtraGameArgs
             $lnk.WorkingDirectory = $DistDir
             if (Test-Path $distIco) { $lnk.IconLocation = $distIco + ",0" } else { $lnk.IconLocation = $exe + ",0" }
             $lnk.Description = "NHL 2K8 Recompiled"
@@ -105,6 +105,35 @@ if (-not $failed) {
             Ok "desktop shortcut created: $lnkPath"
         } else {
             Ok "skipped the desktop shortcut"
+        }
+
+        # 4. Windows Firewall rule for online play. Windows silently drops other players' messages
+        #    on networks marked "Public" unless the game is allowed, so add one rule for the game
+        #    (Windows asks for permission once). Skipping it only affects online play.
+        if ($NoFirewall) {
+            Ok "skipped the Windows Firewall rule for online play"
+        } else {
+            $fwName  = "NHL 2K8 Recompiled (online play)"
+            $fwStamp = Join-Path $LocalDir "firewall-rule.stamp"
+            $fwDone  = (Test-Path $fwStamp) -and ((Get-Content $fwStamp -Raw).Trim() -eq $exe)
+            if ($fwDone) {
+                Ok "Windows Firewall already lets the game receive online play traffic"
+            } else {
+                Write-Host "For online play, Windows will now ask for permission to let the game through Windows Firewall."
+                Write-Host "Click Yes to allow it, or No to skip it (the game works either way; online play may not find other players)."
+                $fwArgs = '/c netsh advfirewall firewall delete rule name="' + $fwName + '" >nul 2>&1 & netsh advfirewall firewall add rule name="' + $fwName + '" dir=in action=allow program="' + $exe + '" enable=yes profile=any'
+                try {
+                    $fp = Start-Process -FilePath "cmd.exe" -ArgumentList $fwArgs -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                    if ($fp.ExitCode -eq 0) {
+                        Set-Content -Path $fwStamp -Value $exe -Encoding ascii
+                        Ok "Windows Firewall now lets the game receive online play traffic"
+                    } else {
+                        Warn "The firewall rule was not added (exit code $($fp.ExitCode)). Online play may not find other players; see Online play in the README."
+                    }
+                } catch {
+                    Warn "Skipped the firewall rule (permission was not given). Online play may not find other players; see Online play in the README."
+                }
+            }
         }
     } catch {
         Bad $_.Exception.Message

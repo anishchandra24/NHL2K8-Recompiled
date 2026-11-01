@@ -70,7 +70,7 @@ if (-not $failed) {
         }
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $DistDir "rexruntimerd.dll")))
         if ($text.Contains("cannot find a song file")) { Ok "dist contains the music-patched runtime" } else { Warn "the runtime in dist does not contain the music code - check this" }
-        $bat = "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"%~dp0nhl2k8.exe`" --game_data_root=`"$AssetsDir`" --gpu_plugin=xenos --mnk_mode=true --log_level=error`r`n"
+        $bat = "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"%~dp0nhl2k8.exe`" --game_data_root=`"$AssetsDir`" --gpu_plugin=xenos --mnk_mode=true --log_level=error$ExtraGameArgs`r`n"
         Set-Content -Path (Join-Path $DistDir "Launch NHL 2K8.bat") -Value $bat -Encoding ascii
         Ok ("game built: dist\nhl2k8.exe ({0:N1} MB)" -f ((Get-Item (Join-Path $DistDir "nhl2k8.exe")).Length / 1MB))
     } catch {

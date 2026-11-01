@@ -14,9 +14,9 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("anishchandra24")]
 [assembly: AssemblyProduct("NHL 2K8 Recompiled")]
 [assembly: AssemblyCopyright("GPL-3.0 - https://github.com/anishchandra24/NHL2K8-Recompiled")]
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
-[assembly: AssemblyInformationalVersion("1.5")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyInformationalVersion("1.6")]
 
 namespace Nhl2k8Setup
 {
@@ -28,14 +28,19 @@ namespace Nhl2k8Setup
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (Uninstaller.Handle(args)) { return; }
+            // For testing: --repo <url> downloads the project from another repository.
+            for (int i = 0; i + 1 < args.Length; i++)
+            {
+                if (args[i] == "--repo") SetupForm.RepoUrl = args[i + 1];
+            }
             Application.Run(new SetupForm());
         }
     }
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.5";
-        const string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
+        const string WizardVersion = "1.6";
+        public static string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
         const string VsCmake = "Microsoft.VisualStudio.Component.VC.CMake.Project";
@@ -43,6 +48,7 @@ namespace Nhl2k8Setup
 
         TextBox gameBox;
         TextBox installBox;
+        TextBox gamertagBox;
         TextBox logBox;
         Button gameBrowse;
         Button installBrowse;
@@ -66,8 +72,8 @@ namespace Nhl2k8Setup
             Font = new Font("Segoe UI", 9f);
             Image banner = LoadBanner();
             int b = (banner != null) ? BannerHeight : 0;
-            ClientSize = new Size(720, 560 + b);
-            MinimumSize = new Size(640, 460 + b);
+            ClientSize = new Size(720, 610 + b);
+            MinimumSize = new Size(640, 510 + b);
             StartPosition = FormStartPosition.CenterScreen;
 
             if (banner != null)
@@ -95,35 +101,44 @@ namespace Nhl2k8Setup
             gameBrowse.Click += delegate { Browse(gameBox, "Choose the folder that contains default.xex", "game folder"); };
             installBrowse.Click += delegate { Browse(installBox, "Choose where to install (a short path such as C:\\NHL2K8)", "install folder"); };
 
+            Label tagLabel = new Label();
+            tagLabel.Text = "Your gamertag for online play (letters, numbers and spaces, up to 15; optional):";
+            tagLabel.SetBounds(12, 176 + b, 696, 18);
+            Controls.Add(tagLabel);
+            gamertagBox = new TextBox();
+            gamertagBox.MaxLength = 15;
+            gamertagBox.SetBounds(12, 198 + b, 300, 24);
+            Controls.Add(gamertagBox);
+
             startButton = new Button();
             startButton.Text = "Install";
-            startButton.SetBounds(12, 178 + b, 100, 32);
+            startButton.SetBounds(12, 230 + b, 100, 32);
             startButton.Click += OnStart;
             Controls.Add(startButton);
 
             playButton = new Button();
             playButton.Text = "Play";
-            playButton.SetBounds(118, 178 + b, 100, 32);
+            playButton.SetBounds(118, 230 + b, 100, 32);
             playButton.Enabled = false;
             playButton.Click += OnPlay;
             Controls.Add(playButton);
 
             logButton = new Button();
             logButton.Text = "Open log";
-            logButton.SetBounds(224, 178 + b, 100, 32);
+            logButton.SetBounds(224, 230 + b, 100, 32);
             logButton.Click += OnOpenLog;
             Controls.Add(logButton);
 
             uninstallButton = new Button();
             uninstallButton.Text = "Uninstall";
-            uninstallButton.SetBounds(330, 178 + b, 100, 32);
+            uninstallButton.SetBounds(330, 230 + b, 100, 32);
             uninstallButton.Click += OnUninstall;
             Controls.Add(uninstallButton);
 
             statusLabel = new Label();
             statusLabel.Text = "Ready.";
             statusLabel.AutoEllipsis = true;
-            statusLabel.SetBounds(440, 186 + b, 268, 20);
+            statusLabel.SetBounds(440, 238 + b, 268, 20);
             statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(statusLabel);
 
@@ -133,13 +148,14 @@ namespace Nhl2k8Setup
             logBox.ScrollBars = ScrollBars.Vertical;
             logBox.Font = new Font("Consolas", 8.5f);
             logBox.BackColor = Color.White;
-            logBox.SetBounds(12, 220 + b, 696, 328);
+            logBox.SetBounds(12, 272 + b, 696, 326);
             logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(logBox);
 
             if (File.Exists("C:\\NHL2K8\\dist\\nhl2k8.exe"))
             {
                 installedDir = "C:\\NHL2K8";
+                gamertagBox.Text = ReadGamertag("C:\\NHL2K8");
                 playButton.Enabled = true;
                 statusLabel.Text = "Already installed in C:\\NHL2K8.";
             }
@@ -149,10 +165,34 @@ namespace Nhl2k8Setup
             {
                 installedDir = registered;
                 installBox.Text = registered;
+                gamertagBox.Text = ReadGamertag(registered);
                 playButton.Enabled = true;
                 statusLabel.Text = "Installed in " + registered + ".";
             }
             WriteLogFile("---- NHL 2K8 Recompiled setup wizard " + WizardVersion + " started on Windows " + Environment.OSVersion.Version + " ----");
+        }
+
+        static string CleanGamertag(string s)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in (s ?? ""))
+            {
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ') sb.Append(c);
+            }
+            string t = sb.ToString().Trim();
+            if (t.Length > 15) t = t.Substring(0, 15).Trim();
+            return t;
+        }
+
+        static string ReadGamertag(string dir)
+        {
+            try
+            {
+                string f = Path.Combine(dir, ".local\\gamertag.txt");
+                if (File.Exists(f)) return CleanGamertag(File.ReadAllText(f));
+            }
+            catch (Exception) { }
+            return "";
         }
 
         static Image LoadBanner()
@@ -318,12 +358,15 @@ namespace Nhl2k8Setup
             installBrowse.Enabled = false;
             gameBox.ReadOnly = true;
             installBox.ReadOnly = true;
-            Thread t = new Thread(delegate() { Work(game, dir); });
+            gamertagBox.ReadOnly = true;
+            string tag = CleanGamertag(gamertagBox.Text);
+            gamertagBox.Text = tag;
+            Thread t = new Thread(delegate() { Work(game, dir, tag); });
             t.IsBackground = true;
             t.Start();
         }
 
-        void Work(string game, string dir)
+        void Work(string game, string dir, string tag)
         {
             bool ok = false;
             try
@@ -332,7 +375,7 @@ namespace Nhl2k8Setup
                 string git = EnsureGit();
                 EnsureVisualStudio();
                 CloneOrPull(git, dir);
-                RunSetup(git, dir, game);
+                RunSetup(git, dir, game, tag);
                 ok = File.Exists(Path.Combine(dir, "dist\\nhl2k8.exe"));
                 if (!ok) throw new Exception("Setup finished but dist\\nhl2k8.exe was not created.");
                 installedDir = dir;
@@ -363,6 +406,7 @@ namespace Nhl2k8Setup
                     installBrowse.Enabled = true;
                     gameBox.ReadOnly = false;
                     installBox.ReadOnly = false;
+                    gamertagBox.ReadOnly = false;
                     playButton.Enabled = ok || (installedDir != null);
                 }));
             }
@@ -529,7 +573,7 @@ namespace Nhl2k8Setup
             }
         }
 
-        void RunSetup(string git, string dir, string game)
+        void RunSetup(string git, string dir, string game, string tag)
         {
             string script = Path.Combine(dir, "scripts\\setup.ps1");
             if (!File.Exists(script)) throw new Exception("The project was downloaded but scripts\\setup.ps1 is missing.");
@@ -537,6 +581,7 @@ namespace Nhl2k8Setup
             Log("Running the project's setup script...");
             SetStatus("Building the game (this is the long part)...");
             string args = "-NoProfile -ExecutionPolicy RemoteSigned -File \"" + script + "\" -GameDataRoot \"" + game + "\"";
+            if (tag.Length > 0) args += " -Gamertag \"" + tag + "\"";
             int code = RunProcess("powershell.exe", args, dir, Path.GetDirectoryName(git), false);
             if (code != 0)
                 throw new Exception("Setup did not finish (exit code " + code + "). Read the messages above. You can run this installer again; finished steps are skipped.");
@@ -583,7 +628,11 @@ namespace Nhl2k8Setup
                 Warn("The game was not found in " + dist + ". Click Install first.");
                 return;
             }
-            ProcessStartInfo psi = new ProcessStartInfo(exe, "--game_data_root=\"" + Path.Combine(dir, "assets") + "\" --gpu_plugin=xenos --mnk_mode=true --log_level=error");
+            string tag = CleanGamertag(gamertagBox.Text);
+            if (tag.Length == 0) tag = ReadGamertag(dir);
+            string gameArgs = "--game_data_root=\"" + Path.Combine(dir, "assets") + "\" --gpu_plugin=xenos --mnk_mode=true --log_level=error";
+            if (tag.Length > 0) gameArgs += " --net_gamertag=\"" + tag + "\"";
+            ProcessStartInfo psi = new ProcessStartInfo(exe, gameArgs);
             psi.WorkingDirectory = dist;
             psi.UseShellExecute = false;
             try { Process.Start(psi); }

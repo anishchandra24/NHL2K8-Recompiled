@@ -28,6 +28,7 @@ Works:
 - Achievements
 - Soundtrack through the game's built-in music player (2K Beats)
 - Custom soundtracks through the game's User Playlists screen (see "Custom soundtracks" below)
+- Online play against other players on your network through the game's Xbox Live menu: Quick Match and Custom Match, player matches (see "Online play" below)
 - The game's own icon on the window, taskbar and shortcut
 
 Known issues:
@@ -35,16 +36,22 @@ Known issues:
 - Stutter in busy scenes with a full crowd (pond hockey and mini rink run smoothly).
 - The F4 settings screen's "Save to config" button writes a config file the game can't read (a ReXGlue SDK bug). Edit settings by hand with forward slashes in paths.
 - The first time you reach a new screen (team select, starting a game, the faceoff, after a goal), the game can stutter for a few seconds. This looks like graphics shaders being prepared and saved, and it did not repeat on later visits.
-- Online features do not work.
+- Online: ranked matches, Play Friend invites, leaderboards and the 2K Sports service do not work. Playing over the internet through a virtual LAN has not been tested yet.
 
-## Tested on
+## Minimum PC
 
-- Laptop: AMD Ryzen 7 7735HS, NVIDIA RTX 4060 Laptop GPU (and AMD Radeon integrated graphics), 32 GB RAM, Windows 10 Home. Plays smoothly except in busy scenes with a full crowd.
-- Desktop: AMD Ryzen 3 3200G, AMD Radeon RX 550, 16 GB RAM, Windows 10 Home. Plays, a little slower than the laptop, with the same stutter in busy scenes. Mini rink (2 on 2) was smooth.
+The lowest-end PC it has been tested on, where it runs well, including online play:
+
+- CPU: 4 cores, such as an AMD Ryzen 3 3200G
+- Graphics: a card that supports Direct3D 12, such as an AMD Radeon RX 550
+- RAM: 16 GB (building the game uses a lot of memory)
+- Windows 10 or 11, 64-bit
+
+It may well run on less. If you try it on a lower-end PC, please open an issue and say how it went.
 
 ## What you need
 
-- Windows 10 or 11, 64-bit (only Windows 10 has been tested), and a graphics card that supports Direct3D 12
+- Windows 10 or 11, 64-bit, and a graphics card that supports Direct3D 12
 - About 10 GB of free disk space for the build, plus room for your extracted game files
 - An internet connection for the first setup (it downloads the ReXGlue SDK and its libraries)
 - Your own copy of NHL 2K8 for Xbox 360 (Title ID 54540809, version 0.0.0.3), extracted so that `default.xex` and the game's other files sit in one folder. Extract your game's disc image with a tool such as Xbox Image Browser. The supported `default.xex` is 9,383,936 bytes with the SHA-256 hash `BA4E63334FAF296019657C6E86BBD444CB05646E29FA6C7B72F4BF9709CE4225`. Other releases are not supported, and setup warns you if yours is different.
@@ -53,21 +60,21 @@ Known issues:
 
 ## Setup
 
-Tested on two PCs (see "Tested on" above) and by an outside tester. Reports from other PCs, good or bad, are welcome: please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose).
+Tested on several PCs, including by outside testers. Reports from other PCs, good or bad, are welcome: please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose).
 
 ### Easy install (recommended)
 
 1. Download `NHL2K8-Recompiled-Setup.exe` from the [Releases page](https://github.com/anishchandra24/NHL2K8-Recompiled/releases).
-2. Run it. Windows may show "Windows protected your PC" because the program is not code-signed. Click "More info", then "Run anyway". You can check your download against the SHA-256 fingerprint in the release notes.
-3. Click "Browse..." next to "Your game folder" and choose the folder that contains `default.xex`. Keep the suggested install folder or choose another short path, then click "Install".
-4. Wait. If Git or Visual Studio 2022 Community are missing, the program installs them with Windows' package installer (Windows asks for permission), then downloads the project and builds the game. Allow 15 to 30 minutes, plus the downloads and any Visual Studio install.
+2. Run it. Windows may show "Windows protected your PC" because the program is not code-signed. Click "More info", then "Run anyway". You can check your download against the SHA-256 fingerprint in the release notes. On Windows 11, Smart App Control may block it outright ("isn't signed") with no way to run it anyway; Smart App Control can only be turned off in Windows Security, App & browser control, Smart App Control settings, and on many PCs turning it off cannot be undone without reinstalling Windows. If you would rather keep it on, use the manual install below.
+3. Click "Browse..." next to "Your game folder" and choose the folder that contains `default.xex`. Keep the suggested install folder or choose another short path. Optionally type a gamertag for online play (otherwise you appear as "User"). Then click "Install".
+4. Wait. If Git or Visual Studio 2022 Community are missing, the program installs them with Windows' package installer (Windows asks for permission), then downloads the project and builds the game. Allow 15 to 30 minutes, plus the downloads and any Visual Studio install. At the end, Windows asks for permission to let the game through Windows Firewall for online play; click Yes (or No if you will never play online).
 5. When it says it is done, click "Play", or use the "NHL 2K8 Recompiled" shortcut on your desktop.
 
 If your antivirus flags the setup program: some antivirus programs (for example Microsoft Defender, as "Trojan:Win32/Wacatac.C!ml") have flagged `NHL2K8-Recompiled-Setup.exe`. This is a false positive. The "!ml" means a machine-learning guess, not a known virus: the program is new, is not code-signed, and does what an installer does, starting PowerShell, Git and Windows' package installer to download the tools and build the game. Its complete source code is in the `installer` folder of this repository, and the release notes give the file's SHA-256 fingerprint so you can check that your download is the published file. The detections are being reported to the antivirus makers as false positives. If you would rather not run it, use the manual install below, which does not use the setup program at all.
 
 To remove it, use Settings, Apps, "NHL 2K8 Recompiled" (or the "Uninstall" button in the setup program). Uninstalling never touches your game files, and it asks before deleting your saves.
 
-Automatic installation of Visual Studio has not been tested on a PC that does not have it. If you try it, please open an issue and tell me how it went, whether it worked or not. If it fails, install the tools by hand (see "What you need") and run the setup program again.
+Automatic installation of Git and Visual Studio worked for an outside tester on Windows 11. If it fails for you, install the tools by hand (see "What you need") and run the setup program again, and please open an issue.
 
 ### Manual install
 
@@ -79,12 +86,13 @@ If you prefer to do it by hand, or the setup program does not work for you:
         git clone https://github.com/anishchandra24/NHL2K8-Recompiled.git C:\NHL2K8
 
 3. Open the `C:\NHL2K8` folder and double-click `setup.bat`. When it asks, type the path to your extracted game folder (the folder that contains `default.xex`) and press Enter.
-4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies its four SDK patches (music playback, a recompiler fix, a color fix and custom soundtracks), builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on a fast 8-core laptop and about 21 minutes on a slower 4-core desktop, both including the downloads. Slower PCs or connections will take longer.
+4. Wait. Setup checks your tools and game files, downloads the ReXGlue SDK at the exact version this project uses, applies its five SDK patches (music playback, a recompiler fix, a color fix, custom soundtracks and online play), builds the SDK, generates the game's code from your `default.xex`, builds the game, and creates a desktop shortcut. It took about 12 minutes on a fast 8-core laptop and about 21 minutes on a slower 4-core desktop, both including the downloads. Slower PCs or connections will take longer.
 5. Start the game from the "NHL 2K8 Recompiled" shortcut on your desktop, or run `dist\Launch NHL 2K8.bat`.
 
 Notes:
 
-- If Windows Firewall asks about `nhl2k8.exe`, you can click Cancel. The game does not need network access to run (online features are not supported), and it started and ran with the prompt cancelled.
+- At the end, setup asks Windows for permission to add a Windows Firewall rule named "NHL 2K8 Recompiled (online play)" so other players can reach your game. Click No if you will never play online; the game works without it. Run `setup.bat -NoFirewall` to skip this step.
+- To set a gamertag for online play, run `setup.bat -Gamertag "YourName"` (letters, numbers and spaces, up to 15). It is remembered for later runs.
 - If setup stops, it prints what went wrong. Fix the problem and run `setup.bat` again; finished steps are skipped. Detailed logs are in `.local\logs`.
 - Options: run `setup.bat -NoShortcut` for no desktop shortcut, `setup.bat -SkipIcon` to skip the game's icon, or `setup.bat -Rebuild` to rebuild the SDK from scratch.
 - The game's icon is read from your own copy of the game (your `default.xex`) during setup. The icon is not part of this repository.
@@ -106,6 +114,24 @@ Like on the Xbox 360, the game can play your own music instead of its soundtrack
 
 Song titles, artists and albums are read from the files' tags. A song without tags is shown by its file name. A file that cannot be played is skipped. Playlists are read again each time you open the screen, so you can add songs while the game is running. Unlike on the Xbox 360, your music stops when you quit the game. The playlists folder is inside `Documents\nhl2k8`, so when the uninstaller asks about deleting your saves, it means this folder too.
 
+## Online play
+
+The game's Xbox Live mode works again, without Xbox Live: games are found on your own network, with no server involved.
+
+1. Start the game on both PCs and choose Xbox Live in the main menu.
+2. One player picks Quick Match or Custom Match first, with Game Type set to Player Match, and waits on "Locating an opponent".
+3. The other player picks the same mode with the same settings. The game finds the first player's match and connects.
+
+What works: Quick Match and Custom Match (player matches), tested on two PCs on the same Wi-Fi, playing complete games. What does not: ranked matches, Play Friend (invites), leaderboards and the 2K Sports service, which needed servers that no longer exist.
+
+- Your gamertag is the name you typed in the setup program (or `setup.bat -Gamertag "YourName"`). Without one you appear as "User".
+- Windows Firewall: setup adds a rule so other players' messages reach the game. Without it, on Wi-Fi networks that Windows marks as "Public", the PCs may not find each other or a match may stop with "A network problem has been encountered". If you skipped the rule, run setup again and click Yes, or set your network to Private in Windows Settings (Network & internet, Wi-Fi, your network). To remove the rule later, open Windows Defender Firewall, Advanced settings, Inbound Rules.
+- Over the internet: both players can join the same virtual LAN with a free program such as ZeroTier, Tailscale or Radmin VPN (the same idea as Hamachi), so the game sees the other PC as if it were on the same network. No router or port forwarding changes are needed. Add `--net_ip=` followed by your address on that virtual network (for example `--net_ip=10.147.17.5`) to the end of the Target box in the desktop shortcut's Properties, and if the players do not find each other, also add `--net_peers=` followed by the other player's virtual address. This has not been tested yet; if you try it, please open an issue and say whether it worked.
+
+## Higher resolution
+
+The game renders at 720p by default. To render at a higher resolution, close the game, right-click the "NHL 2K8 Recompiled" shortcut, choose Properties, and add ` --resolution_scale=2` to the end of the Target box (2 gives 1440p, 3 gives 4K). This needs a stronger graphics card. Changing the display resolution in the F4 settings screen only stretches the 720p picture.
+
 ## Reporting problems and test results
 
 Found a bug, or hit a problem during setup? Please [open an issue](https://github.com/anishchandra24/NHL2K8-Recompiled/issues/new/choose). Test reports are just as welcome as bug reports, including "it worked": this project has only been tested on a few PCs, so every report helps. Useful things to include are your Windows version, your CPU, graphics card and RAM, whether setup finished, and the last lines of the logs. The setup program's log is `%TEMP%\NHL2K8-Setup.log`, and the setup steps log to `.local\logs` inside the install folder.
@@ -126,7 +152,7 @@ An XInput game controller also works.
 
 ## How this was made
 
-This project was developed in a chat conversation with Claude, an AI assistant by Anthropic. Claude wrote the diagnostic commands, configuration fixes, code and patches. Claude had no access to the developer's computer: everything it wrote was copied in by hand, run and tested by me, the project owner (anishchandra24), who also reported what happened, supplied knowledge of the original game, and made all decisions. Claude Code was not used. It has been tested by me on two PCs (see "Tested on" above) and by one outside tester. The code has not been reviewed by anyone else.
+This project was developed in a chat conversation with Claude, an AI assistant by Anthropic. Claude wrote the diagnostic commands, configuration fixes, code and patches. Claude had no access to the developer's computer: everything it wrote was copied in by hand, run and tested by me, the project owner (anishchandra24), who also reported what happened, supplied knowledge of the original game, and made all decisions. Claude Code was not used. It has been tested by me on two PCs and by outside testers. The code has not been reviewed by anyone else.
 
 ## Credits
 
