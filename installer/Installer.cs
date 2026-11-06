@@ -15,9 +15,9 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("anishchandra24")]
 [assembly: AssemblyProduct("NHL 2K8 Recompiled")]
 [assembly: AssemblyCopyright("GPL-3.0 - https://github.com/anishchandra24/NHL2K8-Recompiled")]
-[assembly: AssemblyVersion("1.6.0.0")]
-[assembly: AssemblyFileVersion("1.6.0.0")]
-[assembly: AssemblyInformationalVersion("1.6")]
+[assembly: AssemblyVersion("1.8.0.0")]
+[assembly: AssemblyFileVersion("1.8.0.0")]
+[assembly: AssemblyInformationalVersion("1.8")]
 
 namespace Nhl2k8Setup
 {

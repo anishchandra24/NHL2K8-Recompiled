@@ -26,9 +26,11 @@ Works:
 - Boots, menus, quick games, franchise mode, tournaments, saving and loading
 - Keyboard and controller input, including several controllers at once for local multiplayer
 - Achievements
+- Highlight replays during the intermissions and after the final horn, like on the console
 - Soundtrack through the game's built-in music player (2K Beats)
 - Custom soundtracks through the game's User Playlists screen (see "Custom soundtracks" below)
 - Online play against other players on your network through the game's Xbox Live menu: Quick Match and Custom Match, player matches (see "Online play" below)
+- Community rosters (.ROS files), imported with the setup program (see "Rosters" below)
 - The game's own icon on the window, taskbar and shortcut
 
 Known issues:
@@ -136,6 +138,14 @@ The game renders at 720p by default. To render at a higher resolution, close the
 The classic, international and all-decade teams' unnamed players (such as "1. Center") get their real names while the game runs. The names come from the NHL 2K8 Legends Roster researched by Moto Guzzi Dude on the Operation Sports forums ([NHL2K8 XBOX 360 Roster with All Teams named PLUS 5 more Historical NHL Teams](https://forums.operationsports.com/forums/forum/hockey/other-hockey-games/nhl-2k/nhl-2k-rosters/923875-nhl2k8-xbox-360-roster-with-all-teams-named-plus-5-more-historical-nhl-teams)). Thank you! Only the player names are used; his roster file is not included. Moto Guzzi Dude, if you'd rather I didn't use your list, open an issue and I'll take it out.
 
 You can turn the names off in setup, or start the game with `--legend_names=false`.
+
+## Rosters
+
+Community rosters made for the Xbox 360 version, such as updated 2007-08 rosters with the missing rookies, can be added without knowing where the game keeps its saves. Run the setup program, click "Import roster..." and choose the `.ROS` file (or a `.zip` with one inside). In the game, load it from the roster menu (Load Roster).
+
+- The game goes back to its built-in roster each time it starts, so load your roster again after starting the game.
+- Franchise and season saves cannot be imported, only rosters.
+- To remove an imported roster, delete it from the game's own save menus.
 
 ## Reporting problems and test results
 
