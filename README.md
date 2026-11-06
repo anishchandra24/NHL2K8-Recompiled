@@ -143,8 +143,6 @@ You can turn the names off in setup, or start the game with `--legend_names=fals
 
 Community rosters made for the Xbox 360 version, such as updated 2007-08 rosters with the missing rookies, can be added without knowing where the game keeps its saves. Run the setup program, click "Import roster..." and choose the `.ROS` file (or a `.zip` with one inside). In the game, load it from the roster menu (Load Roster).
 
-The "Import roster..." button is in setup program 1.8, which comes with the next release.
-
 - The game goes back to its built-in roster each time it starts, so load your roster again after starting the game.
 - Franchise and season saves cannot be imported, only rosters.
 - To remove an imported roster, delete it from the game's own save menus.
