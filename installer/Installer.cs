@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -39,7 +40,7 @@ namespace Nhl2k8Setup
 
     class SetupForm : Form
     {
-        const string WizardVersion = "1.7";
+        const string WizardVersion = "1.8";
         public static string RepoUrl = "https://github.com/anishchandra24/NHL2K8-Recompiled.git";
         const string VsWorkload = "Microsoft.VisualStudio.Workload.NativeDesktop";
         const string VsClang = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
@@ -57,6 +58,7 @@ namespace Nhl2k8Setup
         Button playButton;
         Button logButton;
         Button uninstallButton;
+        Button importButton;
         Label statusLabel;
         Process current;
         volatile bool running;
@@ -142,10 +144,16 @@ namespace Nhl2k8Setup
             uninstallButton.Click += OnUninstall;
             Controls.Add(uninstallButton);
 
+            importButton = new Button();
+            importButton.Text = "Import roster...";
+            importButton.SetBounds(436, 230 + b, 110, 32);
+            importButton.Click += OnImportRoster;
+            Controls.Add(importButton);
+
             statusLabel = new Label();
             statusLabel.Text = "Ready.";
             statusLabel.AutoEllipsis = true;
-            statusLabel.SetBounds(440, 238 + b, 268, 20);
+            statusLabel.SetBounds(552, 238 + b, 156, 20);
             statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(statusLabel);
 
@@ -319,6 +327,86 @@ namespace Nhl2k8Setup
             if (t.Length < 2) return;
             if (t.IndexOf('\u2588') >= 0 || t.IndexOf('\u2592') >= 0) return;
             Log(line);
+        }
+
+        // Import community roster files (.ROS from Xbox 360, or a .zip with them) into the
+        // game's saves, so they show up under Load Roster.
+        void OnImportRoster(object sender, EventArgs e)
+        {
+            string path;
+            using (OpenFileDialog dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Choose an NHL 2K8 roster file (.ROS, or a .zip with one inside)";
+                dlg.Filter = "NHL 2K8 rosters (*.ros;*.zip;SaveGame.dat)|*.ros;*.zip;SaveGame.dat|All files (*.*)|*.*";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                path = dlg.FileName;
+            }
+            List<RosterFile> rosters;
+            try { rosters = RosterImport.Load(path); }
+            catch (Exception ex)
+            {
+                Warn(ex.Message);
+                return;
+            }
+            foreach (RosterFile r in rosters)
+            {
+                string name = AskRosterName(r);
+                if (name == null) continue;
+                try
+                {
+                    string dir = RosterImport.Install(r, name);
+                    Log("Imported roster \"" + name + "\" from " + r.Source + " into " + dir);
+                    MessageBox.Show(this, "Imported \"" + name + "\".\n\nIn the game, load it from the roster menu (Load Roster). " +
+                        "To remove it later, delete it from the game's own save menus.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    Warn("The roster could not be imported: " + ex.Message);
+                }
+            }
+        }
+
+        string AskRosterName(RosterFile r)
+        {
+            using (Form f = new Form())
+            {
+                f.Text = "Import roster";
+                f.Font = Font;
+                f.FormBorderStyle = FormBorderStyle.FixedDialog;
+                f.MinimizeBox = false;
+                f.MaximizeBox = false;
+                f.StartPosition = FormStartPosition.CenterParent;
+                f.ClientSize = new Size(420, 130);
+                Label l = new Label();
+                l.Text = "Name to show in the game's roster list (from " + r.Source + "):";
+                l.AutoEllipsis = true;
+                l.SetBounds(12, 12, 396, 36);
+                f.Controls.Add(l);
+                TextBox box = new TextBox();
+                box.MaxLength = 24;
+                box.Text = r.DisplayName;
+                box.SetBounds(12, 52, 396, 24);
+                f.Controls.Add(box);
+                Button ok = new Button();
+                ok.Text = "Import";
+                ok.DialogResult = DialogResult.OK;
+                ok.SetBounds(232, 90, 85, 28);
+                f.Controls.Add(ok);
+                Button cancel = new Button();
+                cancel.Text = "Cancel";
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.SetBounds(323, 90, 85, 28);
+                f.Controls.Add(cancel);
+                f.AcceptButton = ok;
+                f.CancelButton = cancel;
+                while (true)
+                {
+                    if (f.ShowDialog(this) != DialogResult.OK) return null;
+                    string name = RosterImport.CleanName(box.Text);
+                    if (name.Length > 0) return name;
+                    box.Text = r.DisplayName;
+                }
+            }
         }
 
         void Warn(string message)

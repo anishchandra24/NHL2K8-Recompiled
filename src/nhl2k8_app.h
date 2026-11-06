@@ -37,6 +37,23 @@ REXCVAR_DEFINE_BOOL(legend_names, true, "Game",
                     "Give the unnamed players on the classic teams (shown as \"1. Center\") their "
                     "real names");
 
+REXCVAR_DEFINE_BOOL(tracy_profiler, false, "Game",
+                    "Start the built-in Tracy profiler so the Tracy viewer can connect "
+                    "(performance testing only)");
+
+#ifdef _WIN32
+// The SDK's Tracy client is built to start manually, but nothing starts it.
+inline void StartTracyProfiler() {
+  HMODULE m = GetModuleHandleW(L"TracyClientrd.dll");
+  if (!m) m = GetModuleHandleW(L"TracyClient.dll");
+  if (!m) return;
+  using StartFn = void (*)();
+  auto fn = reinterpret_cast<StartFn>(GetProcAddress(m, "___tracy_startup_profiler"));
+  if (!fn) fn = reinterpret_cast<StartFn>(GetProcAddress(m, "?StartupProfiler@tracy@@YAXXZ"));
+  if (fn) fn();
+}
+#endif
+
 class Nhl2k8App : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -60,6 +77,9 @@ class Nhl2k8App : public rex::ReXApp {
   // so each hook tries again until the work is done.
   void OnPostLoadXexImage() override { ApplyWindowExtras(); }
   void OnPostSetup() override {
+#ifdef _WIN32
+    if (REXCVAR_GET(tracy_profiler)) StartTracyProfiler();
+#endif
     ApplyWindowExtras();
 #ifdef _WIN32
     StartLegendNames();

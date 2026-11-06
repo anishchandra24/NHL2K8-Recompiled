@@ -28,6 +28,7 @@ $PatchFile2 = Join-Path $RepoRoot "patches\codegen_vector_alias.patch"
 $PatchFile3 = Join-Path $RepoRoot "patches\gamma_resolve_decode.patch"
 $PatchFile4 = Join-Path $RepoRoot "patches\user_playlists.patch"
 $PatchFile5 = Join-Path $RepoRoot "patches\netplay.patch"
+$PatchFile6 = Join-Path $RepoRoot "patches\codegen_dcbz128.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
@@ -322,6 +323,23 @@ try {
         }
     }
 
+    # ---- dcbz patch (a plain dcbz clears a whole 128-byte cache line on the Xbox 360, not 32 bytes) ----
+    $dcbzTarget = Join-Path $SdkDir "src\codegen\builders\system.cpp"
+    if ((Get-Content $dcbzTarget -Raw).Contains("no short cache line")) {
+        Ok "dcbz patch already applied"
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile6
+        if ($LASTEXITCODE -ne 0) {
+            Warn "dcbz patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile6
+            if ($LASTEXITCODE -ne 0) { throw "The dcbz patch could not be applied" }
+        }
+        if ((Get-Content $dcbzTarget -Raw).Contains("no short cache line")) {
+            Ok "dcbz patch applied"
+        } else {
+            throw "The dcbz patch reported success but the new code is not in the file"
+        }
+    }
     # ---- Online play patch (Xbox Live matches found over your network or a virtual LAN) ----
     # A copy of the applied version is kept in .local, so a newer version of this patch can
     # replace it when the project is updated.
@@ -355,7 +373,7 @@ try {
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile5 -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile5 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile6 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {
@@ -378,8 +396,8 @@ try {
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($runtimeDll))
         if ($text.Contains("cannot find a song file")) { Ok "the built runtime contains the music code" } else { Warn "could not find the music code inside the built runtime - check this" }
         # The recompiler keeps old generated code when only the recompiler changed, so regenerate it.
-        # Only needed when the recompiler itself changed (SDK version or the vector pack patch).
-        $codegenStamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash
+        # Only needed when the recompiler itself changed (SDK version, the vector pack patch or the dcbz patch).
+        $codegenStamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile6 -Algorithm SHA256).Hash
         $haveCodegenStamp = (Test-Path $CodegenStampFile) -and ((Get-Content $CodegenStampFile -Raw).Trim() -eq $codegenStamp)
         $genDir = Join-Path $RepoRoot "generated\default"
         if ($haveCodegenStamp) {
