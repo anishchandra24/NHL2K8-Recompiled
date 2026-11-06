@@ -29,6 +29,7 @@ $PatchFile3 = Join-Path $RepoRoot "patches\gamma_resolve_decode.patch"
 $PatchFile4 = Join-Path $RepoRoot "patches\user_playlists.patch"
 $PatchFile5 = Join-Path $RepoRoot "patches\netplay.patch"
 $PatchFile6 = Join-Path $RepoRoot "patches\codegen_dcbz128.patch"
+$PatchFile7 = Join-Path $RepoRoot "patches\graphics_speedups.patch"
 $failed = $false
 $sw = [Diagnostics.Stopwatch]::StartNew()
 . (Join-Path $PSScriptRoot "libmspack.ps1")
@@ -370,10 +371,27 @@ try {
         }
     }
 
+    # ---- Graphics speed-up patch (less work per draw; graphics code built with full optimization) ----
+    $gfxTarget = Join-Path $SdkDir "src\graphics\shared_memory.cpp"
+    if ((Get-Content $gfxTarget -Raw).Contains("speedup2")) {
+        Ok "Graphics speed-up patch already applied"
+    } else {
+        & git -C $SdkDir apply --whitespace=nowarn $PatchFile7
+        if ($LASTEXITCODE -ne 0) {
+            Warn "Graphics speed-up patch did not apply cleanly; retrying while ignoring whitespace differences"
+            & git -C $SdkDir apply --ignore-whitespace --whitespace=nowarn $PatchFile7
+            if ($LASTEXITCODE -ne 0) { throw "The graphics speed-up patch could not be applied" }
+        }
+        if ((Get-Content $gfxTarget -Raw).Contains("speedup2")) {
+            Ok "Graphics speed-up patch applied"
+        } else {
+            throw "The graphics speed-up patch reported success but the new code is not in the file"
+        }
+    }
     # ---- Build the SDK ----
     Write-Host ""
     Write-Host "--- Building the SDK (the slow step: expect a while the first time) ---"
-    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile5 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile6 -Algorithm SHA256).Hash
+    $stamp = $SdkCommit + "|" + (Get-FileHash -LiteralPath $PatchFile -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile2 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile3 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile4 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile5 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile6 -Algorithm SHA256).Hash + "|" + (Get-FileHash -LiteralPath $PatchFile7 -Algorithm SHA256).Hash
     $haveStamp = (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw).Trim() -eq $stamp)
     $runtimeDll = Join-Path $SdkInstallDir "bin\rexruntimerd.dll"
     if ($haveStamp -and (Test-Path $runtimeDll) -and (-not $Rebuild)) {

@@ -32,8 +32,7 @@ Works:
 - The game's own icon on the window, taskbar and shortcut
 
 Known issues:
-- Small colored speckles around the edges of the intro logo videos.
-- Stutter in busy scenes with a full crowd (pond hockey and mini rink run smoothly).
+- Some PCs see a slowdown in busy scenes with a full crowd, most noticeably around center ice. It is smaller than in earlier versions, and some players do not see it at all (pond hockey and mini rink run smoothly).
 - The F4 settings screen's "Save to config" button writes a config file the game can't read (a ReXGlue SDK bug). Edit settings by hand with forward slashes in paths.
 - The first time you reach a new screen (team select, starting a game, the faceoff, after a goal), the game can stutter for a few seconds. This looks like graphics shaders being prepared and saved, and it did not repeat on later visits.
 - Online: ranked matches, Play Friend invites, leaderboards and the 2K Sports service do not work. Playing over the internet through a virtual LAN has not been tested yet.

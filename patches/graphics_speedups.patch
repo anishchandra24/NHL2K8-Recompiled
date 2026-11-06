@@ -1,0 +1,117 @@
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 0d8f8af..f512eb1 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -111,6 +111,12 @@ target_include_directories(rexgpu-xenos PRIVATE
+ )
+ 
+ target_compile_options(rexgpu-xenos PRIVATE -Wno-unused-variable)
++# speedup4: in RelWithDebInfo builds, leave out the profiler hooks (they run on
++# every draw) and optimize fully. The F3 overlay counters stay.
++target_compile_options(rexgpu-xenos PRIVATE "$<$<CONFIG:RelWithDebInfo>:-UREXGLUE_ENABLE_PROFILING;-O3>")
++# speedup5: link-time optimization (lets the compiler optimize across files).
++target_compile_options(rexgpu-xenos PRIVATE "$<$<CONFIG:RelWithDebInfo>:-flto=thin>")
++target_link_options(rexgpu-xenos PRIVATE "$<$<CONFIG:RelWithDebInfo>:-flto=thin;-fuse-ld=lld>")
+ 
+ rex_target_pch(rexgpu-xenos
+     <mutex>
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a744375..88b0919 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -355,9 +355,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+ 
+   // Volatile for the WAIT_REG_MEM loop.
+   const_cast<volatile uint32_t&>(regs.values[index]) = value;
+-  if (!regs.GetRegisterInfo(index)) {
+-    REXGPU_DEBUG("GPU: Write to unknown register ({:04X} = {:08X})", index, value);
+-  }
++  // speedup1: no per-write register-table lookup (it only fed a debug message).
+ 
+   // Scratch register writeback.
+   if (index >= XE_GPU_REG_SCRATCH_REG0 && index <= XE_GPU_REG_SCRATCH_REG7) {
+@@ -493,9 +491,21 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+ 
+ void CommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_t* base,
+                                              uint32_t num_registers) {
++  RegisterFile& regs = *register_file_;
+   for (uint32_t i = 0; i < num_registers; ++i) {
++    uint32_t index = start_index + i;
+     uint32_t data = memory::load_and_swap<uint32_t>(base + i);
+-    WriteRegister(start_index + i, data);
++    // speedup3: registers without side effects are stored directly. Anything
++    // with special handling (scratch, coherency, gamma ramp, shader constants)
++    // still goes through WriteRegister.
++    if (index < XE_GPU_REG_SHADER_CONSTANT_000_X &&
++        !(index >= XE_GPU_REG_SCRATCH_REG0 && index <= XE_GPU_REG_SCRATCH_REG7) &&
++        index != XE_GPU_REG_COHER_STATUS_HOST &&
++        !(index >= XE_GPU_REG_DC_LUT_RW_INDEX && index <= XE_GPU_REG_DC_LUT_30_COLOR)) {
++      const_cast<volatile uint32_t&>(regs.values[index]) = data;
++    } else {
++      WriteRegister(index, data);
++    }
+   }
+ }
+ 
+@@ -702,6 +712,12 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, uint32_t p
+ 
+   uint32_t base_index = (packet & 0x7FFF);
+   uint32_t write_one_reg = (packet >> 15) & 0x1;
++  if (!write_one_reg) {
++    // speedup1: consecutive registers go through the range writer, which has
++    // fast paths for shader constants and falls back to WriteRegister otherwise.
++    WriteRegisterRangeFromRing(reader, base_index, count);
++    return true;
++  }
+   for (uint32_t m = 0; m < count; m++) {
+     uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
+     uint32_t target_index = write_one_reg ? base_index : base_index + m;
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..05e2078 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -342,8 +342,43 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+     return true;
+   }
+ 
++  // speedup2: most draws ask for one range whose pages are all already up to
++  // date. Check that without the global lock: a CPU write that invalidates a
++  // page is always handled before the game submits the draw that reads it.
++  if (count == 1) {
++    uint32_t fast_start = ranges[0].first;
++    uint32_t fast_length = ranges[0].second;
++    if (!fast_length) {
++      return true;
++    }
++    if (fast_start > kBufferSize || (kBufferSize - fast_start) < fast_length) {
++      return false;
++    }
++    uint32_t fast_page_first = fast_start >> page_size_log2_;
++    uint32_t fast_page_last = (fast_start + fast_length - 1) >> page_size_log2_;
++    uint32_t fast_block_first = fast_page_first >> 6;
++    uint32_t fast_block_last = fast_page_last >> 6;
++    bool fast_all_valid = true;
++    for (uint32_t i = fast_block_first; i <= fast_block_last && fast_all_valid; ++i) {
++      uint64_t need = UINT64_MAX;
++      if (i == fast_block_first) {
++        need &= ~((uint64_t(1) << (fast_page_first & 63)) - 1);
++      }
++      if (i == fast_block_last && (fast_page_last & 63) != 63) {
++        need &= (uint64_t(1) << ((fast_page_last & 63) + 1)) - 1;
++      }
++      uint64_t valid = __atomic_load_n(&system_page_flags_valid_[i], __ATOMIC_ACQUIRE);
++      fast_all_valid = (valid & need) == need;
++    }
++    if (fast_all_valid) {
++      return EnsureHostGpuMemoryAllocated(fast_start, fast_length);
++    }
++  }
++
+   // Some texture or buffer is empty, for example - safe to draw in this case.
+-  std::vector<std::pair<uint32_t, uint32_t>> merged_ranges;
++  // speedup2: reuse one list instead of allocating a new one on every call.
++  static thread_local std::vector<std::pair<uint32_t, uint32_t>> merged_ranges;
++  merged_ranges.clear();
+   merged_ranges.reserve(count);
+   for (size_t i = 0; i < count; ++i) {
+     uint32_t start = ranges[i].first;
