@@ -4,5 +4,6 @@
 
 #include "nhl2k8_app.h"
 #include "highlight_replays.h"
+#include "franchise_fix.h"
 
 REX_DEFINE_APP(nhl2k8, Nhl2k8App::Create)
